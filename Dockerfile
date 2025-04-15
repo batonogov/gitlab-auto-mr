@@ -1,4 +1,13 @@
-FROM python:3.12.7-alpine
+FROM golang:1.21-alpine AS builder
 
-RUN pip install --no-cache \
-        gitlab-auto-mr==1.2.0
+WORKDIR /app
+COPY . .
+
+RUN go mod tidy
+RUN CGO_ENABLED=0 GOOS=linux go build -o /gitlab-auto-mr
+
+FROM alpine:3.18
+
+COPY --from=builder /gitlab-auto-mr /usr/local/bin/gitlab-auto-mr
+
+ENTRYPOINT ["gitlab-auto-mr"]
