@@ -17,6 +17,11 @@ func main() {
 		descriptionFile = flag.String("description", "", "Path to a file containing merge request description")
 		removeBranch    = flag.Bool("remove-branch", false, "Remove source branch after merge")
 		useIssueName    = flag.Bool("use-issue-name", false, "Use issue name for merge request title")
+		squashCommits   = flag.Bool("squash-commits", false, "Squash commits in the merge request")
+		autoMerge       = flag.Bool("auto-merge", false, "Enable auto-merge for the merge request")
+		reviewers       = flag.String("reviewers", "", "Comma-separated list of reviewer usernames")
+		milestone       = flag.String("milestone", "", "Milestone ID for the merge request")
+		assignee        = flag.String("assignee", "", "Username of the assignee")
 		gitlabToken     = os.Getenv("GITLAB_TOKEN")
 		gitlabURL       = os.Getenv("CI_SERVER_URL")
 		projectID       = os.Getenv("CI_PROJECT_ID")
@@ -42,6 +47,7 @@ func main() {
 	}
 
 	// Initialize GitLab client
+	//nolint:staticcheck // TODO: migrate to new client when it's stable
 	git, err := gitlab.NewClient(gitlabToken, gitlab.WithBaseURL(gitlabURL+"/api/v4"))
 	if err != nil {
 		fmt.Printf("Failed to create GitLab client: %v\n", err)
@@ -76,10 +82,11 @@ func main() {
 	}
 
 	// Check if MR already exists
+	state := "opened"
 	mrs, _, err := git.MergeRequests.ListProjectMergeRequests(projectID, &gitlab.ListProjectMergeRequestsOptions{
 		SourceBranch: &sourceBranch,
 		TargetBranch: targetBranch,
-		State:        gitlab.String("opened"),
+		State:        &state,
 	})
 
 	if err != nil {
@@ -92,12 +99,53 @@ func main() {
 		os.Exit(0)
 	}
 
+	// Prepare additional options
+	var reviewerIDs []int
+	if *reviewers != "" {
+		for _, username := range strings.Split(*reviewers, ",") {
+			users, _, err := git.Users.ListUsers(&gitlab.ListUsersOptions{
+				Username: &username,
+			})
+			if err != nil || len(users) == 0 {
+				fmt.Printf("Warning: Failed to get reviewer ID for %s: %v\n", username, err)
+				continue
+			}
+			reviewerIDs = append(reviewerIDs, users[0].ID)
+		}
+	}
+
+	var milestoneID *int
+	if *milestone != "" {
+		mid, err := strconv.Atoi(*milestone)
+		if err == nil {
+			milestoneID = &mid
+		} else {
+			fmt.Printf("Warning: Invalid milestone ID: %s\n", *milestone)
+		}
+	}
+
+	var assigneeID *int
+	if *assignee != "" {
+		users, _, err := git.Users.ListUsers(&gitlab.ListUsersOptions{
+			Username: assignee,
+		})
+		if err != nil || len(users) == 0 {
+			fmt.Printf("Warning: Failed to get assignee ID for %s: %v\n", *assignee, err)
+		} else {
+			assigneeID = &users[0].ID
+		}
+	}
+
 	// Create merge request
 	mrOpts := &gitlab.CreateMergeRequestOptions{
 		Title:              &mrTitle,
 		SourceBranch:       &sourceBranch,
 		TargetBranch:       targetBranch,
 		RemoveSourceBranch: removeBranch,
+		Squash:             squashCommits,
+		AssigneeID:         assigneeID,
+		MilestoneID:        milestoneID,
+		ReviewerIDs:        &reviewerIDs,
 	}
 
 	if description != "" {
@@ -110,10 +158,22 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Enable auto-merge if requested
+	if *autoMerge {
+		_, _, err = git.MergeRequests.AcceptMergeRequest(projectID, mr.IID, &gitlab.AcceptMergeRequestOptions{
+			ShouldRemoveSourceBranch: removeBranch,
+			Squash:                   squashCommits,
+		})
+		if err != nil {
+			fmt.Printf("Warning: Failed to enable auto-merge: %v\n", err)
+		}
+	}
+
 	// Link issue if available
 	if issueIID != "" {
+		stateEvent := "close"
 		_, _, err = git.Issues.UpdateIssue(projectID, extractIssueIIDAsInt(issueIID), &gitlab.UpdateIssueOptions{
-			StateEvent: gitlab.String("close"),
+			StateEvent: &stateEvent,
 		})
 		if err != nil {
 			fmt.Printf("Warning: Failed to close linked issue: %v\n", err)
