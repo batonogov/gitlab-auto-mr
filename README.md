@@ -160,29 +160,57 @@ open_merge_request:
         --commit-prefix Draft \
         --description ./.gitlab/merge_request/merge_request.md \
         --remove-branch \
-        --use-issue-name
+        --use-issue-name \
+        --wait-pipeline \
+        --pipeline-timeout 1800 \
+        --reviewers "tech-lead,senior-dev" \
+        --assignee "product-owner" \
+        --milestone 42 \
+        --squash-commits \
+        --auto-merge
   rules:
     - if: $CI_COMMIT_BRANCH != "dev" && $CI_PIPELINE_SOURCE != "merge_request_event"
+    - when: on_success # Only create MR if the pipeline succeeds
 ```
 
 ## Command Line Options
 
-- `--target-branch`: Target branch for the merge request (required)
-- `--commit-prefix`: Prefix to add to the commit message (optional)
-- `--description`: Path to a file containing merge request description (optional)
-- `--remove-branch`: Remove source branch after merge (flag)
-- `--use-issue-name`: Use issue name for merge request title (flag)
+### Required Options
+- `--target-branch`: Target branch for the merge request
+
+### Pipeline Control
+- `--wait-pipeline`: Wait for pipeline to complete before creating MR
+- `--pipeline-timeout`: Maximum time to wait for pipeline in seconds (default: 3600)
+
+### MR Settings
+- `--commit-prefix`: Prefix to add to the commit message
+- `--description`: Path to a file containing merge request description
+- `--remove-branch`: Remove source branch after merge
+- `--use-issue-name`: Use issue name for merge request title
+- `--squash-commits`: Squash commits in the merge request
+- `--auto-merge`: Enable auto-merge for the merge request
+
+### Reviewers and Assignment
+- `--reviewers`: Comma-separated list of reviewer usernames
+- `--assignee`: Username of the assignee
+- `--milestone`: Milestone ID for the merge request
 
 ## Environment Variables
 
 This tool relies on GitLab CI environment variables:
 
-- `GITLAB_TOKEN`: Personal Access Token with API access (required)
-- `CI_SERVER_URL`: GitLab server URL (defaults to https://gitlab.com if not set)
+### Required Variables
+- `GITLAB_TOKEN`: Personal Access Token with API access
 - `CI_PROJECT_ID`: GitLab project ID
-- `CI_PROJECT_PATH`: GitLab project path
 - `CI_COMMIT_REF_NAME`: Current branch name
 - `CI_COMMIT_TITLE`: Current commit title
+
+### Required for Pipeline Check
+- `CI_COMMIT_SHA`: Current commit SHA (required when using --wait-pipeline)
+
+### Optional Variables
+- `CI_SERVER_URL`: GitLab server URL (defaults to https://gitlab.com)
+- `CI_PROJECT_PATH`: GitLab project path
 
 ## Building
 
