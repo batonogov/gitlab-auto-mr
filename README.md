@@ -9,7 +9,7 @@ This is a Go implementation of the GitLab Auto MR tool for automatically creatin
 ### Prerequisites
 
 - Go 1.x or higher
-- Task (task runner)
+- [Task](https://taskfile.dev/) (task runner)
 - Python (for pre-commit)
 - pip (for pre-commit installation)
 
@@ -20,7 +20,35 @@ This is a Go implementation of the GitLab Auto MR tool for automatically creatin
    ```bash
    # On macOS
    brew install go-task/tap/go-task
+   # Other platforms: https://taskfile.dev/installation/
    ```
+
+### Development with Task
+
+Task is a task runner / build tool that aims to be simpler and easier to use than, for example, GNU Make.
+
+#### Available Tasks
+
+```bash
+task --list
+```
+
+Main development commands:
+- `task build` - build the binary
+- `task test` - run tests
+- `task test:cover` - run tests with coverage and generate HTML report
+- `task lint` - run linters
+- `task clean` - clean build artifacts
+- `task dev:setup` - setup development environment
+
+Docker-related tasks:
+- `task docker:build` - build Docker image
+- `task docker:run` - run in Docker (requires environment variables)
+
+Additional commands:
+- `task install-deps` - install development dependencies
+- `task help` - show available commands
+
 3. Install pre-commit hooks:
    ```bash
    task setup-pre-commit

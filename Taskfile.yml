@@ -1,6 +1,15 @@
 version: '3'
 
+vars:
+  BINARY_NAME: gitlab_auto_mr
+  DOCKER_IMAGE: gitlab-auto-mr
+
 tasks:
+  build:
+    desc: Build the binary
+    cmds:
+      - go build -o {{.BINARY_NAME}}
+
   test:
     desc: Run tests
     cmds:
@@ -16,27 +25,50 @@ tasks:
   lint:
     desc: Run linters
     cmds:
-      - go vet ./...
-      - test -z $(gofmt -l .)
-
-  build:
-    desc: Build the application
-    cmds:
-      - go build -o bin/gitlab-auto-mr
+      - golangci-lint run
 
   clean:
     desc: Clean build artifacts
     cmds:
-      - rm -rf bin/
+      - rm -f {{.BINARY_NAME}}
       - rm -f coverage.html
 
-  setup-pre-commit:
-    desc: Install pre-commit hooks
+  docker:build:
+    desc: Build Docker image
     cmds:
-      - pip install pre-commit
-      - pre-commit install
-      - pre-commit autoupdate
+      - docker build -t {{.DOCKER_IMAGE}} .
 
-  all:
-    desc: Run all checks and tests
-    deps: [lint, test]
+  docker:run:
+    desc: Run Docker container (requires environment variables)
+    cmds:
+      - >
+        docker run --rm
+        -e GITLAB_TOKEN=${GITLAB_TOKEN}
+        -e CI_SERVER_URL=${CI_SERVER_URL}
+        -e CI_PROJECT_ID=${CI_PROJECT_ID}
+        -e CI_COMMIT_REF_NAME=${CI_COMMIT_REF_NAME}
+        -e CI_COMMIT_TITLE=${CI_COMMIT_TITLE}
+        {{.DOCKER_IMAGE}} {{.CLI_ARGS}}
+
+  install-deps:
+    desc: Install development dependencies
+    cmds:
+      - go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+      - go mod tidy
+
+  dev:setup:
+    desc: Setup development environment
+    cmds:
+      - task: install-deps
+      - task: build
+      - task: test
+
+  help:
+    desc: Show available commands
+    cmds:
+      - task --list
+
+  default:
+    desc: Show help
+    cmds:
+      - task: help
