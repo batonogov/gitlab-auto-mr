@@ -1,0 +1,42 @@
+version: '3'
+
+tasks:
+  test:
+    desc: Run tests
+    cmds:
+      - go test -v ./...
+
+  test:cover:
+    desc: Run tests with coverage
+    cmds:
+      - go test -v -coverprofile=coverage.out ./...
+      - go tool cover -html=coverage.out -o coverage.html
+      - rm coverage.out
+
+  lint:
+    desc: Run linters
+    cmds:
+      - go vet ./...
+      - test -z $(gofmt -l .)
+
+  build:
+    desc: Build the application
+    cmds:
+      - go build -o bin/gitlab-auto-mr
+
+  clean:
+    desc: Clean build artifacts
+    cmds:
+      - rm -rf bin/
+      - rm -f coverage.html
+
+  setup-pre-commit:
+    desc: Install pre-commit hooks
+    cmds:
+      - pip install pre-commit
+      - pre-commit install
+      - pre-commit autoupdate
+
+  all:
+    desc: Run all checks and tests
+    deps: [lint, test]

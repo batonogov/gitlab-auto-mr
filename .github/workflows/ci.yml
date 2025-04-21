@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+
+      - name: Install Task
+        uses: arduino/setup-task@v1
+        with:
+          version: '3.x'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run tests
+        run: task test
+
+      - name: Run tests with coverage
+        run: task test:cover
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./coverage.out
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+
+      - name: Install Task
+        uses: arduino/setup-task@v1
+        with:
+          version: '3.x'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run linters
+        run: task lint
+
+  build:
+    needs: [test, lint]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+
+      - name: Install Task
+        uses: arduino/setup-task@v1
+        with:
+          version: '3.x'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build
+        run: task build
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitlab-auto-mr
+          path: bin/gitlab-auto-mr
+
+  integration:
+    needs: [build]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment: integration
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+
+      - name: Run integration tests
+        run: go test -v -tags=integration ./...
+        env:
+          GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
+          CI_SERVER_URL: ${{ secrets.GITLAB_URL }}
+          CI_PROJECT_ID: ${{ secrets.GITLAB_PROJECT_ID }}
+          CI_COMMIT_REF_NAME: ${{ github.ref_name }}
+          CI_COMMIT_TITLE: ${{ github.event.head_commit.message }}

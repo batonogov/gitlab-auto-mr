@@ -4,12 +4,127 @@ Create MR in GitLab automatically (Go implementation)
 
 This is a Go implementation of the GitLab Auto MR tool for automatically creating Merge Requests from GitLab CI pipelines.
 
+## Development
+
+### Prerequisites
+
+- Go 1.x or higher
+- Task (task runner)
+- Python (for pre-commit)
+- pip (for pre-commit installation)
+
+### Setup Development Environment
+
+1. Clone the repository
+2. Install Task runner (if not installed):
+   ```bash
+   # On macOS
+   brew install go-task/tap/go-task
+   ```
+3. Install pre-commit hooks:
+   ```bash
+   task setup-pre-commit
+   ```
+
+### Available Tasks
+
+You can use the following commands for development:
+
+- `task test` - run tests
+- `task test:cover` - run tests with coverage report
+- `task lint` - run linters
+- `task build` - build the application
+- `task clean` - clean build artifacts
+- `task all` - run all checks and tests
+
+### Pre-commit Hooks
+
+The project uses pre-commit hooks to ensure code quality. The following checks are run before each commit:
+
+- Go tests
+- Go linters (go vet)
+- Code formatting (gofmt)
+
+If any of these checks fail, the commit will be rejected. You can run the checks manually:
+```bash
+pre-commit run --all-files
+```
+
+### CI/CD Pipeline
+
+The project uses GitHub Actions with the following jobs:
+
+### Installation
+
+You can install gitlab-auto-mr in several ways:
+
+1. **Using pre-built binaries**:
+   Download the latest release from [GitHub Releases](https://github.com/your-username/gitlab-auto-mr/releases)
+
+2. **Using Docker**:
+   ```bash
+   docker pull ghcr.io/your-username/gitlab-auto-mr:latest
+   ```
+
+3. **From source**:
+   ```bash
+   go install github.com/your-username/gitlab-auto-mr@latest
+   ```
+
+### Release Process
+
+The project uses GitHub Actions for automated releases:
+
+1. Create and push a new tag:
+   ```bash
+   git tag -a v1.0.0 -m "Release v1.0.0"
+   git push origin v1.0.0
+   ```
+
+2. GitHub Actions will automatically:
+   - Build binaries for multiple platforms (Linux, macOS, Windows)
+   - Create a GitHub Release with changelog
+   - Push Docker image to GitHub Container Registry (ghcr.io)
+   - Tag Docker images with version and latest tags
+
+1. **Test**:
+   - Runs unit tests
+   - Generates and uploads code coverage to Codecov
+   - Runs tests with race detection
+
+2. **Lint**:
+   - Runs `go vet`
+   - Checks code formatting
+
+3. **Build**:
+   - Compiles the application
+   - Uploads binary as an artifact
+
+4. **Integration**:
+   - Runs integration tests (only on main branch)
+   - Requires GitLab credentials in GitHub Secrets:
+     - `GITLAB_TOKEN`
+     - `GITLAB_URL`
+     - `GITLAB_PROJECT_ID`
+
+To run tests locally:
+```bash
+# Run unit tests
+task test
+
+# Run tests with coverage
+task test:cover
+
+# Run integration tests
+go test -v -tags=integration ./...
+```
+
 ## Usage in .gitlab-ci.yml
 
 ```yaml
 open_merge_request:
   stage: prepare
-  image: ghcr.io/your-username/gitlab-auto-mr:latest
+  image: docker pull ghcr.io/batonogov/gitlab-auto-mr:latest
   script:
     - >
       gitlab_auto_mr \

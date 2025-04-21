@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/xanzy/go-gitlab"
@@ -93,9 +94,9 @@ func main() {
 
 	// Create merge request
 	mrOpts := &gitlab.CreateMergeRequestOptions{
-		Title:           &mrTitle,
-		SourceBranch:    &sourceBranch,
-		TargetBranch:    targetBranch,
+		Title:              &mrTitle,
+		SourceBranch:       &sourceBranch,
+		TargetBranch:       targetBranch,
 		RemoveSourceBranch: removeBranch,
 	}
 
@@ -124,28 +125,30 @@ func main() {
 
 // Extract issue IID from branch name (e.g., "feature/123-description" -> "123")
 func extractIssueIID(branchName string) string {
-	parts := strings.Split(branchName, "/")
-	if len(parts) < 2 {
-		parts = strings.Split(branchName, "-")
-		if len(parts) < 2 {
-			return ""
+	findNumericID := func(s string) string {
+		parts := strings.Split(s, "-")
+		if len(parts) > 0 {
+			if _, err := strconv.Atoi(parts[0]); err == nil {
+				return parts[0]
+			}
 		}
-		return parts[0]
-	}
-
-	issueParts := strings.Split(parts[1], "-")
-	if len(issueParts) < 1 {
 		return ""
 	}
 
-	return issueParts[0]
+	parts := strings.Split(branchName, "/")
+	if len(parts) >= 2 {
+		if id := findNumericID(parts[1]); id != "" {
+			return id
+		}
+	}
+	return findNumericID(branchName)
 }
 
 // Convert issue IID string to int
 func extractIssueIIDAsInt(iid string) int {
 	var issueIID int
-	_, err := fmt.Sscanf(iid, "%d", &issueIID)
-	if err != nil {
+	n, err := fmt.Sscanf(iid, "%d", &issueIID)
+	if err != nil || n != 1 || fmt.Sprintf("%d", issueIID) != iid {
 		return 0
 	}
 	return issueIID
