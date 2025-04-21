@@ -4,6 +4,52 @@ Create MR in GitLab automatically (Go implementation)
 
 This is a Go implementation of the GitLab Auto MR tool for automatically creating Merge Requests from GitLab CI pipelines.
 
+## Development
+
+### Prerequisites
+
+- Go 1.x or higher
+- Task (task runner)
+- Python (for pre-commit)
+- pip (for pre-commit installation)
+
+### Setup Development Environment
+
+1. Clone the repository
+2. Install Task runner (if not installed):
+   ```bash
+   # On macOS
+   brew install go-task/tap/go-task
+   ```
+3. Install pre-commit hooks:
+   ```bash
+   task setup-pre-commit
+   ```
+
+### Available Tasks
+
+You can use the following commands for development:
+
+- `task test` - run tests
+- `task test:cover` - run tests with coverage report
+- `task lint` - run linters
+- `task build` - build the application
+- `task clean` - clean build artifacts
+- `task all` - run all checks and tests
+
+### Pre-commit Hooks
+
+The project uses pre-commit hooks to ensure code quality. The following checks are run before each commit:
+
+- Go tests
+- Go linters (go vet)
+- Code formatting (gofmt)
+
+If any of these checks fail, the commit will be rejected. You can run the checks manually:
+```bash
+pre-commit run --all-files
+```
+
 ## Usage in .gitlab-ci.yml
 
 ```yaml
