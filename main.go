@@ -22,6 +22,8 @@ func main() {
 		reviewers       = flag.String("reviewers", "", "Comma-separated list of reviewer usernames")
 		milestone       = flag.String("milestone", "", "Milestone ID for the merge request")
 		assignee        = flag.String("assignee", "", "Username of the assignee")
+		waitPipeline    = flag.Bool("wait-pipeline", false, "Wait for pipeline to complete before creating MR")
+		pipelineTimeout = flag.Int("pipeline-timeout", 3600, "Maximum time to wait for pipeline in seconds (default 1h)")
 		gitlabToken     = os.Getenv("GITLAB_TOKEN")
 		gitlabURL       = os.Getenv("CI_SERVER_URL")
 		projectID       = os.Getenv("CI_PROJECT_ID")
@@ -44,6 +46,12 @@ func main() {
 
 	if gitlabURL == "" {
 		gitlabURL = "https://gitlab.com"
+	}
+
+	commitSHA := os.Getenv("CI_COMMIT_SHA")
+	if *waitPipeline && commitSHA == "" {
+		fmt.Println("CI_COMMIT_SHA environment variable is required when using --wait-pipeline")
+		os.Exit(1)
 	}
 
 	// Initialize GitLab client
@@ -97,6 +105,30 @@ func main() {
 	if len(mrs) > 0 {
 		fmt.Printf("Merge request already exists: %s\n", mrs[0].WebURL)
 		os.Exit(0)
+	}
+
+	// Check pipeline status if requested
+	if *waitPipeline {
+		fmt.Printf("Waiting for pipeline to complete (timeout: %d seconds)...\n", *pipelineTimeout)
+
+		pipelineID, err := getPipelineID(git, projectID, commitSHA)
+		if err != nil {
+			fmt.Printf("Failed to get pipeline ID: %v\n", err)
+			os.Exit(1)
+		}
+
+		status, err := waitForPipeline(git, projectID, pipelineID, *pipelineTimeout)
+		if err != nil {
+			fmt.Printf("Pipeline check failed: %v\n", err)
+			os.Exit(1)
+		}
+
+		if !status.Success {
+			fmt.Printf("Pipeline failed with status: %s\n", status.Status)
+			os.Exit(1)
+		}
+
+		fmt.Println("Pipeline completed successfully")
 	}
 
 	// Prepare additional options
