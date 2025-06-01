@@ -29,6 +29,7 @@ func main() {
 	}
 
 	// Main application logic starts here
+	// Testing pre-commit hooks functionality
 
 	// Parse configuration from flags and environment variables
 	cfg, err := config.ParseFlags()
