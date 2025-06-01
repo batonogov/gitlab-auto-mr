@@ -16,6 +16,29 @@ tasks:
       - go mod download
       - go mod tidy
 
+  deps-verify:
+    desc: Verify Go dependencies
+    cmds:
+      - go mod verify
+      - |
+        if ! go mod tidy -diff; then
+          echo "go.mod or go.sum needs tidying. Run 'task deps' to fix."
+          exit 1
+        fi
+
+  setup-hooks:
+    desc: Install pre-commit hooks
+    cmds:
+      - |
+        if command -v pre-commit >/dev/null 2>&1; then
+          pre-commit install
+          pre-commit install --hook-type pre-push
+          echo "Pre-commit hooks installed successfully"
+        else
+          echo "pre-commit not found. Install it with: pip install pre-commit"
+          exit 1
+        fi
+
   build:
     desc: Build the application
     deps: [deps]
@@ -50,7 +73,13 @@ tasks:
     desc: Run linters
     cmds:
       - go vet ./...
-      - gofmt -l .
+      - |
+        if [ -n "$(gofmt -l .)" ]; then
+          echo "Code not formatted properly. Run 'task fmt' to fix."
+          echo "Files that need formatting:"
+          gofmt -l .
+          exit 1
+        fi
 
   fmt:
     desc: Format code

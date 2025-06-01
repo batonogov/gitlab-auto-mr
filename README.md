@@ -116,6 +116,33 @@ task build-all     # Build for all platforms
 task docker-build  # Build Docker image
 ```
 
+### Pre-commit Hooks
+
+The project uses [pre-commit](https://pre-commit.com/) to ensure code quality:
+
+```bash
+# Install pre-commit
+pip install pre-commit
+
+# Install hooks
+pre-commit install
+pre-commit install --hook-type pre-push
+
+# Run hooks manually
+pre-commit run --all-files
+```
+
+Available hooks:
+- **go-deps**: Verify Go dependencies are clean
+- **go-fmt**: Format Go code with `gofmt`
+- **go-lint**: Run Go linters (`go vet` + format check)
+- **go-test**: Run all tests
+- **go-build**: Verify build works (pre-push only)
+- **taskfile-validation**: Validate Taskfile syntax
+- **dockerfile-validation**: Basic Dockerfile syntax check
+
+All hooks use Taskfile commands for consistency.
+
 ## License
 
 Apache License 2.0
