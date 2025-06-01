@@ -10,9 +10,9 @@ import (
 	"gitlab-auto-mr/internal/utils"
 )
 
-// Version information - set during build
+// Version information - set during build via ldflags
 var (
-	Version   = "1.0.0"
+	Version   = "dev"
 	GitCommit = "unknown"
 	BuildDate = "unknown"
 )

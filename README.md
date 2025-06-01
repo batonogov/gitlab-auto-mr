@@ -143,6 +143,39 @@ Available hooks:
 
 All hooks use Taskfile commands for consistency.
 
+## Versioning
+
+Version information is automatically generated from git tags and build metadata:
+
+- **Development builds**: `v0.0.3-alpha-8-g672a18b-dirty` (based on git describe)
+- **Tagged releases**: `v1.0.0` (clean tag name)
+- **Unknown**: `dev` (fallback when git is not available)
+
+### Creating Releases
+
+```bash
+# Check current version info
+task version
+
+# Create a new tag
+task tag TAG=v1.0.0
+
+# Push the tag
+git push origin v1.0.0
+
+# Build release artifacts (only works on tagged commits)
+task release
+```
+
+### Version Components
+
+The version information includes:
+- **Version**: Git tag or describe output
+- **Git Commit**: Full SHA of the build commit  
+- **Build Date**: UTC timestamp when binary was built
+
+All version info is embedded at build time via Go's `-ldflags`.
+
 ## License
 
 Apache License 2.0

@@ -4,6 +4,13 @@ vars:
   BINARY_NAME: gitlab_auto_mr
   BUILD_DIR: ./build
   MAIN_PACKAGE: .
+  VERSION:
+    sh: git describe --tags --always --dirty 2>/dev/null || echo "dev"
+  GIT_COMMIT:
+    sh: git rev-parse HEAD 2>/dev/null || echo "unknown"
+  BUILD_DATE:
+    sh: date -u +%Y-%m-%dT%H:%M:%SZ
+  LDFLAGS: -ldflags="-w -s -X main.Version={{.VERSION}} -X main.GitCommit={{.GIT_COMMIT}} -X main.BuildDate={{.BUILD_DATE}}"
 
 tasks:
   default:
@@ -44,18 +51,18 @@ tasks:
     deps: [deps]
     cmds:
       - mkdir -p {{.BUILD_DIR}}
-      - go build -o {{.BUILD_DIR}}/{{.BINARY_NAME}} {{.MAIN_PACKAGE}}
+      - go build {{.LDFLAGS}} -o {{.BUILD_DIR}}/{{.BINARY_NAME}} {{.MAIN_PACKAGE}}
 
   build-all:
     desc: Build for all platforms
     deps: [deps]
     cmds:
       - mkdir -p {{.BUILD_DIR}}
-      - GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o {{.BUILD_DIR}}/{{.BINARY_NAME}}-linux-amd64 {{.MAIN_PACKAGE}}
-      - GOOS=linux GOARCH=arm64 go build -ldflags="-w -s" -o {{.BUILD_DIR}}/{{.BINARY_NAME}}-linux-arm64 {{.MAIN_PACKAGE}}
-      - GOOS=windows GOARCH=amd64 go build -ldflags="-w -s" -o {{.BUILD_DIR}}/{{.BINARY_NAME}}-windows-amd64.exe {{.MAIN_PACKAGE}}
-      - GOOS=darwin GOARCH=amd64 go build -ldflags="-w -s" -o {{.BUILD_DIR}}/{{.BINARY_NAME}}-darwin-amd64 {{.MAIN_PACKAGE}}
-      - GOOS=darwin GOARCH=arm64 go build -ldflags="-w -s" -o {{.BUILD_DIR}}/{{.BINARY_NAME}}-darwin-arm64 {{.MAIN_PACKAGE}}
+      - GOOS=linux GOARCH=amd64 go build {{.LDFLAGS}} -o {{.BUILD_DIR}}/{{.BINARY_NAME}}-linux-amd64 {{.MAIN_PACKAGE}}
+      - GOOS=linux GOARCH=arm64 go build {{.LDFLAGS}} -o {{.BUILD_DIR}}/{{.BINARY_NAME}}-linux-arm64 {{.MAIN_PACKAGE}}
+      - GOOS=windows GOARCH=amd64 go build {{.LDFLAGS}} -o {{.BUILD_DIR}}/{{.BINARY_NAME}}-windows-amd64.exe {{.MAIN_PACKAGE}}
+      - GOOS=darwin GOARCH=amd64 go build {{.LDFLAGS}} -o {{.BUILD_DIR}}/{{.BINARY_NAME}}-darwin-amd64 {{.MAIN_PACKAGE}}
+      - GOOS=darwin GOARCH=arm64 go build {{.LDFLAGS}} -o {{.BUILD_DIR}}/{{.BINARY_NAME}}-darwin-arm64 {{.MAIN_PACKAGE}}
 
   test:
     desc: Run tests
@@ -133,6 +140,38 @@ tasks:
       - task: lint
       - task: test
       - task: build-all
+
+  version:
+    desc: Show version information
+    cmds:
+      - echo "Version{{":"}} {{.VERSION}}"
+      - echo "Git Commit{{":"}} {{.GIT_COMMIT}}"
+      - echo "Build Date{{":"}} {{.BUILD_DATE}}"
+
+  tag:
+    desc: Create a new git tag (usage{{":"}} task tag TAG=v1.0.0)
+    cmds:
+      - |
+        if [ -z "{{.TAG}}" ]; then
+          echo "Usage: task tag TAG=v1.0.0"
+          exit 1
+        fi
+      - git tag -a "{{.TAG}}" -m "Release {{.TAG}}"
+      - echo "Created tag {{.TAG}}"
+      - echo "Push with{{":"}} git push origin {{.TAG}}"
+
+  release:
+    desc: Build release artifacts for a tagged version
+    deps: [clean, test]
+    cmds:
+      - |
+        if ! git describe --exact-match --tags HEAD >/dev/null 2>&1; then
+          echo "Error: HEAD is not on a tag. Create a tag first with 'task tag TAG=vX.Y.Z'"
+          exit 1
+        fi
+      - task: build-all
+      - echo "Release artifacts built in {{.BUILD_DIR}}/"
+      - echo "Version{{":"}} {{.VERSION}}"
 
   help:
     desc: Show available tasks
