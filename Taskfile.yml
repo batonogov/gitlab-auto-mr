@@ -116,7 +116,7 @@ tasks:
   docker-build:
     desc: Build Docker image
     cmds:
-      - docker build -t gitlab-auto-mr:latest .
+      - docker build --build-arg VERSION={{.VERSION}} --build-arg GIT_COMMIT={{.GIT_COMMIT}} --build-arg BUILD_DATE={{.BUILD_DATE}} -t gitlab-auto-mr:{{.VERSION}} -t gitlab-auto-mr:latest .
 
   docker-run:
     desc: Run Docker container
