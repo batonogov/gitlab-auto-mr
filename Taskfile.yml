@@ -2,74 +2,110 @@ version: '3'
 
 vars:
   BINARY_NAME: gitlab_auto_mr
-  DOCKER_IMAGE: gitlab-auto-mr
+  BUILD_DIR: ./build
+  MAIN_PACKAGE: .
 
 tasks:
-  build:
-    desc: Build the binary
+  default:
     cmds:
-      - go build -o {{.BINARY_NAME}}
+      - task: build
+
+  deps:
+    desc: Download Go modules
+    cmds:
+      - go mod download
+      - go mod tidy
+
+  build:
+    desc: Build the application
+    deps: [deps]
+    cmds:
+      - mkdir -p {{.BUILD_DIR}}
+      - go build -o {{.BUILD_DIR}}/{{.BINARY_NAME}} {{.MAIN_PACKAGE}}
+
+  build-all:
+    desc: Build for all platforms
+    deps: [deps]
+    cmds:
+      - mkdir -p {{.BUILD_DIR}}
+      - GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o {{.BUILD_DIR}}/{{.BINARY_NAME}}-linux-amd64 {{.MAIN_PACKAGE}}
+      - GOOS=linux GOARCH=arm64 go build -ldflags="-w -s" -o {{.BUILD_DIR}}/{{.BINARY_NAME}}-linux-arm64 {{.MAIN_PACKAGE}}
+      - GOOS=windows GOARCH=amd64 go build -ldflags="-w -s" -o {{.BUILD_DIR}}/{{.BINARY_NAME}}-windows-amd64.exe {{.MAIN_PACKAGE}}
+      - GOOS=darwin GOARCH=amd64 go build -ldflags="-w -s" -o {{.BUILD_DIR}}/{{.BINARY_NAME}}-darwin-amd64 {{.MAIN_PACKAGE}}
+      - GOOS=darwin GOARCH=arm64 go build -ldflags="-w -s" -o {{.BUILD_DIR}}/{{.BINARY_NAME}}-darwin-arm64 {{.MAIN_PACKAGE}}
 
   test:
     desc: Run tests
     cmds:
       - go test -v ./...
 
-  test:cover:
+  test-coverage:
     desc: Run tests with coverage
     cmds:
-      - go test -v -coverprofile=coverage.out ./...
+      - go test -v -race -coverprofile=coverage.out ./...
       - go tool cover -html=coverage.out -o coverage.html
-      - rm coverage.out
+      - go tool cover -func=coverage.out
 
   lint:
-    desc: Run go vet and other standard checks
+    desc: Run linters
     cmds:
       - go vet ./...
-      - go fmt ./...
+      - gofmt -l .
+
+  fmt:
+    desc: Format code
+    cmds:
+      - gofmt -w .
+
+  run:
+    desc: Run the application
+    deps: [build]
+    cmds:
+      - "{{.BUILD_DIR}}/{{.BINARY_NAME}} {{.CLI_ARGS}}"
+    vars:
+      CLI_ARGS: '{{default "" .CLI_ARGS}}'
+
+  install:
+    desc: Install the application
+    deps: [deps]
+    cmds:
+      - go install {{.MAIN_PACKAGE}}
 
   clean:
     desc: Clean build artifacts
     cmds:
-      - rm -f {{.BINARY_NAME}}
-      - rm -f coverage.html
+      - rm -rf {{.BUILD_DIR}}
+      - rm -f coverage.out coverage.html
 
-  docker:build:
+  docker-build:
     desc: Build Docker image
     cmds:
-      - docker build -t {{.DOCKER_IMAGE}} .
+      - docker build -t gitlab-auto-mr:latest .
 
-  docker:run:
-    desc: Run Docker container (requires environment variables)
+  docker-run:
+    desc: Run Docker container
+    deps: [docker-build]
     cmds:
-      - >
-        docker run --rm
-        -e GITLAB_TOKEN=${GITLAB_TOKEN}
-        -e CI_SERVER_URL=${CI_SERVER_URL}
-        -e CI_PROJECT_ID=${CI_PROJECT_ID}
-        -e CI_COMMIT_REF_NAME=${CI_COMMIT_REF_NAME}
-        -e CI_COMMIT_TITLE=${CI_COMMIT_TITLE}
-        {{.DOCKER_IMAGE}} {{.CLI_ARGS}}
+      - docker run --rm gitlab-auto-mr:latest {{.CLI_ARGS}}
+    vars:
+      CLI_ARGS: '{{default "" .CLI_ARGS}}'
 
-  install-deps:
-    desc: Install development dependencies
+  pre-commit:
+    desc: Run pre-commit checks
     cmds:
-      - go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
-      - go mod tidy
-
-  dev:setup:
-    desc: Setup development environment
-    cmds:
-      - task: install-deps
-      - task: build
+      - task: fmt
+      - task: lint
       - task: test
 
+  ci:
+    desc: Run CI pipeline
+    cmds:
+      - task: deps
+      - task: lint
+      - task: test
+      - task: build-all
+
   help:
-    desc: Show available commands
+    desc: Show available tasks
     cmds:
       - task --list
-
-  default:
-    desc: Show help
-    cmds:
-      - task: help

@@ -1,235 +1,121 @@
 # GitLab Auto MR
 
-Create MR in GitLab automatically (Go implementation)
+A Go CLI tool for automatically creating merge requests in GitLab. Zero external dependencies, uses only Go standard library.
 
-This is a Go implementation of the GitLab Auto MR tool for automatically creating Merge Requests from GitLab CI pipelines.
+## Installation
 
-## Development
-
-### Prerequisites
-
-- Go 1.x or higher
-- [Task](https://taskfile.dev/) (task runner)
-- Python (for pre-commit)
-- pip (for pre-commit installation)
-
-### Setup Development Environment
-
-1. Clone the repository
-2. Install Task runner (if not installed):
-   ```bash
-   # On macOS
-   brew install go-task/tap/go-task
-   # Other platforms: https://taskfile.dev/installation/
-   ```
-
-### Development with Task
-
-Task is a task runner / build tool that aims to be simpler and easier to use than, for example, GNU Make.
-
-#### Available Tasks
-
+### Download Binary
 ```bash
-task --list
+# Linux
+curl -L -o gitlab_auto_mr https://github.com/your-org/gitlab-auto-mr/releases/latest/download/gitlab_auto_mr-linux-amd64
+chmod +x gitlab_auto_mr && sudo mv gitlab_auto_mr /usr/local/bin/
+
+# macOS
+curl -L -o gitlab_auto_mr https://github.com/your-org/gitlab-auto-mr/releases/latest/download/gitlab_auto_mr-darwin-amd64
+chmod +x gitlab_auto_mr && sudo mv gitlab_auto_mr /usr/local/bin/
+
+# Windows
+curl -L -o gitlab_auto_mr.exe https://github.com/your-org/gitlab-auto-mr/releases/latest/download/gitlab_auto_mr-windows-amd64.exe
 ```
 
-Main development commands:
-- `task build` - build the binary
-- `task test` - run tests
-- `task test:cover` - run tests with coverage and generate HTML report
-- `task lint` - run linters
-- `task clean` - clean build artifacts
-- `task dev:setup` - setup development environment
-
-Docker-related tasks:
-- `task docker:build` - build Docker image
-- `task docker:run` - run in Docker (requires environment variables)
-
-Additional commands:
-- `task install-deps` - install development dependencies
-- `task help` - show available commands
-
-3. Install pre-commit hooks:
-   ```bash
-   task setup-pre-commit
-   ```
-
-### Available Tasks
-
-You can use the following commands for development:
-
-- `task test` - run tests
-- `task test:cover` - run tests with coverage report
-- `task lint` - run linters
-- `task build` - build the application
-- `task clean` - clean build artifacts
-- `task all` - run all checks and tests
-
-### Pre-commit Hooks
-
-The project uses pre-commit hooks to ensure code quality. The following checks are run before each commit:
-
-- Go tests
-- Go linters (go vet)
-- Code formatting (gofmt)
-
-If any of these checks fail, the commit will be rejected. You can run the checks manually:
+### Build from Source
 ```bash
-pre-commit run --all-files
+git clone https://github.com/your-org/gitlab-auto-mr.git
+cd gitlab-auto-mr
+go build -o gitlab_auto_mr .
 ```
 
-### CI/CD Pipeline
-
-The project uses GitHub Actions with the following jobs:
-
-### Installation
-
-You can install gitlab-auto-mr in several ways:
-
-1. **Using pre-built binaries**:
-   Download the latest release from [GitHub Releases](https://github.com/your-username/gitlab-auto-mr/releases)
-
-2. **Using Docker**:
-   ```bash
-   docker pull ghcr.io/your-username/gitlab-auto-mr:latest
-   ```
-
-3. **From source**:
-   ```bash
-   go install github.com/your-username/gitlab-auto-mr@latest
-   ```
-
-### Release Process
-
-The project uses GitHub Actions for automated releases:
-
-1. Create and push a new tag:
-   ```bash
-   git tag -a v1.0.0 -m "Release v1.0.0"
-   git push origin v1.0.0
-   ```
-
-2. GitHub Actions will automatically:
-   - Build binaries for multiple platforms (Linux, macOS, Windows)
-   - Create a GitHub Release with changelog
-   - Push Docker image to GitHub Container Registry (ghcr.io)
-   - Tag Docker images with version and latest tags
-
-1. **Test**:
-   - Runs unit tests
-   - Generates and uploads code coverage to Codecov
-   - Runs tests with race detection
-
-2. **Lint**:
-   - Runs `go vet`
-   - Checks code formatting
-
-3. **Build**:
-   - Compiles the application
-   - Uploads binary as an artifact
-
-4. **Integration**:
-   - Runs integration tests (only on main branch)
-   - Requires GitLab credentials in GitHub Secrets:
-     - `GITLAB_TOKEN`
-     - `GITLAB_URL`
-     - `GITLAB_PROJECT_ID`
-
-To run tests locally:
+### Docker
 ```bash
-# Run unit tests
-task test
-
-# Run tests with coverage
-task test:cover
-
-# Run integration tests
-go test -v -tags=integration ./...
+docker pull registry.gitlab.com/your-group/gitlab-auto-mr:latest
 ```
 
-## Usage in .gitlab-ci.yml
+## Usage
+
+### Basic Example
+```bash
+gitlab_auto_mr \
+  --private-token "glpat-xxxxxxxxxxxxxxxxxxxx" \
+  --source-branch "feature/my-feature" \
+  --target-branch "main" \
+  --project-id 12345 \
+  --gitlab-url "https://gitlab.com"
+```
+
+### With Environment Variables
+```bash
+export GITLAB_PRIVATE_TOKEN="glpat-xxxxxxxxxxxxxxxxxxxx"
+export CI_COMMIT_REF_NAME="feature/my-feature"
+export CI_PROJECT_ID="12345"
+export CI_PROJECT_URL="https://gitlab.com/group/project"
+
+gitlab_auto_mr --target-branch main
+```
+
+### Advanced Usage
+```bash
+gitlab_auto_mr \
+  --target-branch main \
+  --title "Add new feature" \
+  --description ./docs/mr_template.md \
+  --user-id "123,456" \
+  --reviewer-id "789" \
+  --commit-prefix "Feature" \
+  --remove-branch \
+  --squash-commits
+```
+
+## GitLab CI/CD Integration
+
+Add to your `.gitlab-ci.yml`:
 
 ```yaml
-open_merge_request:
-  stage: prepare
-  image: docker pull ghcr.io/batonogov/gitlab-auto-mr:latest
+stages:
+  - merge-request
+
+create_mr:
+  stage: merge-request
+  image: registry.gitlab.com/your-group/gitlab-auto-mr:latest
   script:
-    - >
-      gitlab_auto_mr \
-        --target-branch dev \
-        --commit-prefix Draft \
-        --description ./.gitlab/merge_request/merge_request.md \
-        --remove-branch \
-        --use-issue-name \
-        --wait-pipeline \
-        --pipeline-timeout 1800 \
-        --reviewers "tech-lead,senior-dev" \
-        --assignee "product-owner" \
-        --milestone 42 \
-        --squash-commits \
-        --auto-merge
+    - gitlab_auto_mr --target-branch main --commit-prefix "Auto"
   rules:
-    - if: $CI_COMMIT_BRANCH != "dev" && $CI_PIPELINE_SOURCE != "merge_request_event"
-    - when: on_success # Only create MR if the pipeline succeeds
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH != "main"
+  variables:
+    GITLAB_PRIVATE_TOKEN: $GITLAB_PRIVATE_TOKEN
 ```
 
 ## Command Line Options
 
-### Required Options
-- `--target-branch`: Target branch for the merge request
+| Option | Environment Variable | Description |
+|--------|---------------------|-------------|
+| `--private-token` | `GITLAB_PRIVATE_TOKEN` | GitLab private token (required) |
+| `--source-branch` | `CI_COMMIT_REF_NAME` | Source branch name (required) |
+| `--target-branch` | | Target branch name (default: "main") |
+| `--project-id` | `CI_PROJECT_ID` | GitLab project ID (required) |
+| `--gitlab-url` | `CI_PROJECT_URL` | GitLab URL (required) |
+| `--user-id` | `GITLAB_USER_ID` | Assignee user IDs (comma-separated) |
+| `--reviewer-id` | | Reviewer user IDs (comma-separated) |
+| `--title` | | Custom MR title |
+| `--description` | | Path to description file |
+| `--commit-prefix` | | Title prefix (default: "Draft") |
+| `--use-issue-name` | | Extract issue number from branch name |
+| `--remove-branch` | | Remove source branch after merge |
+| `--squash-commits` | | Squash commits on merge |
+| `--mr-exists` | | Check if MR exists (don't create) |
+| `--version` | | Show version information |
 
-### Pipeline Control
-- `--wait-pipeline`: Wait for pipeline to complete before creating MR
-- `--pipeline-timeout`: Maximum time to wait for pipeline in seconds (default: 3600)
+## Development
 
-### MR Settings
-- `--commit-prefix`: Prefix to add to the commit message
-- `--description`: Path to a file containing merge request description
-- `--remove-branch`: Remove source branch after merge
-- `--use-issue-name`: Use issue name for merge request title
-- `--squash-commits`: Squash commits in the merge request
-- `--auto-merge`: Enable auto-merge for the merge request
-
-### Reviewers and Assignment
-- `--reviewers`: Comma-separated list of reviewer usernames
-- `--assignee`: Username of the assignee
-- `--milestone`: Milestone ID for the merge request
-
-## Environment Variables
-
-This tool relies on GitLab CI environment variables:
-
-### Required Variables
-- `GITLAB_TOKEN`: Personal Access Token with API access
-- `CI_PROJECT_ID`: GitLab project ID
-- `CI_COMMIT_REF_NAME`: Current branch name
-- `CI_COMMIT_TITLE`: Current commit title
-
-### Required for Pipeline Check
-- `CI_COMMIT_SHA`: Current commit SHA (required when using --wait-pipeline)
-
-### Optional Variables
-- `CI_SERVER_URL`: GitLab server URL (defaults to https://gitlab.com)
-- `CI_PROJECT_PATH`: GitLab project path
-
-## Building
+Requires Go 1.21+ and [Task](https://taskfile.dev/).
 
 ```bash
-go mod tidy
-go build -o gitlab-auto-mr
+task --list        # Show available tasks
+task test          # Run tests
+task build         # Build for current platform
+task build-all     # Build for all platforms
+task docker-build  # Build Docker image
 ```
 
-## Running with Docker
+## License
 
-```bash
-docker run \
-  -e GITLAB_TOKEN=${YOUR_GITLAB_TOKEN} \
-  -e CI_SERVER_URL=https://gitlab.com \
-  -e CI_PROJECT_ID=12345 \
-  -e CI_PROJECT_PATH=username/project \
-  -e CI_COMMIT_REF_NAME=feature/123-feature \
-  -e CI_COMMIT_TITLE="Add new feature" \
-  ghcr.io/your-username/gitlab-auto-mr:latest \
-  --target-branch main \
-  --remove-branch
-```
+Apache License 2.0

@@ -1,258 +1,139 @@
 package main
 
 import (
-	"flag"
 	"fmt"
+	"log"
 	"os"
-	"strconv"
-	"strings"
 
-	"github.com/xanzy/go-gitlab"
+	"gitlab-auto-mr/internal/config"
+	"gitlab-auto-mr/internal/gitlab"
+	"gitlab-auto-mr/internal/utils"
+)
+
+// Version information - set during build
+var (
+	Version   = "1.0.0"
+	GitCommit = "unknown"
+	BuildDate = "unknown"
 )
 
 func main() {
-	var (
-		targetBranch    = flag.String("target-branch", "", "Target branch for the merge request")
-		commitPrefix    = flag.String("commit-prefix", "", "Prefix to add to the commit message")
-		descriptionFile = flag.String("description", "", "Path to a file containing merge request description")
-		removeBranch    = flag.Bool("remove-branch", false, "Remove source branch after merge")
-		useIssueName    = flag.Bool("use-issue-name", false, "Use issue name for merge request title")
-		squashCommits   = flag.Bool("squash-commits", false, "Squash commits in the merge request")
-		autoMerge       = flag.Bool("auto-merge", false, "Enable auto-merge for the merge request")
-		reviewers       = flag.String("reviewers", "", "Comma-separated list of reviewer usernames")
-		milestone       = flag.String("milestone", "", "Milestone ID for the merge request")
-		assignee        = flag.String("assignee", "", "Username of the assignee")
-		waitPipeline    = flag.Bool("wait-pipeline", false, "Wait for pipeline to complete before creating MR")
-		pipelineTimeout = flag.Int("pipeline-timeout", 3600, "Maximum time to wait for pipeline in seconds (default 1h)")
-		gitlabToken     = os.Getenv("GITLAB_TOKEN")
-		gitlabURL       = os.Getenv("CI_SERVER_URL")
-		projectID       = os.Getenv("CI_PROJECT_ID")
-		sourceBranch    = os.Getenv("CI_COMMIT_REF_NAME")
-		commitTitle     = os.Getenv("CI_COMMIT_TITLE")
-		issueIID        = extractIssueIID(sourceBranch)
-	)
-
-	flag.Parse()
-
-	if gitlabToken == "" {
-		fmt.Println("GITLAB_TOKEN environment variable is required")
-		os.Exit(1)
-	}
-
-	if *targetBranch == "" {
-		fmt.Println("Target branch is required")
-		os.Exit(1)
-	}
-
-	if gitlabURL == "" {
-		gitlabURL = "https://gitlab.com"
-	}
-
-	commitSHA := os.Getenv("CI_COMMIT_SHA")
-	if *waitPipeline && commitSHA == "" {
-		fmt.Println("CI_COMMIT_SHA environment variable is required when using --wait-pipeline")
-		os.Exit(1)
-	}
-
-	// Initialize GitLab client
-	//nolint:staticcheck // TODO: migrate to new client when it's stable
-	git, err := gitlab.NewClient(gitlabToken, gitlab.WithBaseURL(gitlabURL+"/api/v4"))
-	if err != nil {
-		fmt.Printf("Failed to create GitLab client: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Prepare merge request title
-	var mrTitle string
-	if *useIssueName && issueIID != "" {
-		issue, _, err := git.Issues.GetIssue(projectID, extractIssueIIDAsInt(issueIID))
-		if err != nil {
-			fmt.Printf("Failed to get issue details: %v\n", err)
-			// Fallback to commit title
-			mrTitle = getTitle(*commitPrefix, commitTitle)
-		} else {
-			mrTitle = getTitle(*commitPrefix, issue.Title)
-		}
-	} else {
-		// Use commit title as MR title
-		mrTitle = getTitle(*commitPrefix, commitTitle)
-	}
-
-	// Prepare description
-	description := ""
-	if *descriptionFile != "" {
-		content, err := os.ReadFile(*descriptionFile)
-		if err != nil {
-			fmt.Printf("Failed to read description file: %v\n", err)
-		} else {
-			description = string(content)
+	// Check for version flag before parsing all flags
+	for _, arg := range os.Args[1:] {
+		if arg == "--version" || arg == "-v" {
+			fmt.Printf("gitlab-auto-mr version %s\n", Version)
+			fmt.Printf("Git commit: %s\n", GitCommit)
+			fmt.Printf("Build date: %s\n", BuildDate)
+			os.Exit(0)
 		}
 	}
 
-	// Check if MR already exists
-	state := "opened"
-	mrs, _, err := git.MergeRequests.ListProjectMergeRequests(projectID, &gitlab.ListProjectMergeRequestsOptions{
-		SourceBranch: &sourceBranch,
-		TargetBranch: targetBranch,
-		State:        &state,
-	})
-
+	// Parse configuration from flags and environment variables
+	cfg, err := config.ParseFlags()
 	if err != nil {
-		fmt.Printf("Failed to check existing merge requests: %v\n", err)
-		os.Exit(1)
+		log.Fatalf("Error parsing configuration: %v", err)
 	}
 
-	if len(mrs) > 0 {
-		fmt.Printf("Merge request already exists: %s\n", mrs[0].WebURL)
+	// Validate configuration
+	if err := cfg.Validate(); err != nil {
+		log.Fatalf("Configuration validation failed: %v", err)
+	}
+
+	// Sanitize branch names
+	cfg.SourceBranch = utils.SanitizeBranchName(cfg.SourceBranch)
+	cfg.TargetBranch = utils.SanitizeBranchName(cfg.TargetBranch)
+
+	// Create GitLab client
+	client, err := gitlab.NewClient(cfg.GitLabURL, cfg.PrivateToken, cfg.Insecure)
+	if err != nil {
+		log.Fatalf("Failed to create GitLab client: %v", err)
+	}
+
+	// Check if merge request already exists (if requested)
+	if cfg.MRExists {
+		exists, err := client.CheckMergeRequestExists(cfg.ProjectID, cfg.SourceBranch, cfg.TargetBranch)
+		if err != nil {
+			log.Fatalf("Failed to check if merge request exists: %v", err)
+		}
+
+		if exists {
+			fmt.Printf("Merge request already exists for source branch '%s' and target branch '%s'\n",
+				cfg.SourceBranch, cfg.TargetBranch)
+			os.Exit(0)
+		} else {
+			fmt.Printf("No existing merge request found for source branch '%s' and target branch '%s'\n",
+				cfg.SourceBranch, cfg.TargetBranch)
+			os.Exit(0)
+		}
+	}
+
+	// Check if merge request already exists (prevent duplicates)
+	exists, err := client.CheckMergeRequestExists(cfg.ProjectID, cfg.SourceBranch, cfg.TargetBranch)
+	if err != nil {
+		log.Fatalf("Failed to check if merge request exists: %v", err)
+	}
+
+	if exists {
+		fmt.Printf("Merge request already exists for source branch '%s' and target branch '%s'\n",
+			cfg.SourceBranch, cfg.TargetBranch)
 		os.Exit(0)
 	}
 
-	// Check pipeline status if requested
-	if *waitPipeline {
-		fmt.Printf("Waiting for pipeline to complete (timeout: %d seconds)...\n", *pipelineTimeout)
-
-		pipelineID, err := getPipelineID(git, projectID, commitSHA)
-		if err != nil {
-			fmt.Printf("Failed to get pipeline ID: %v\n", err)
-			os.Exit(1)
-		}
-
-		status, err := waitForPipeline(git, projectID, pipelineID, *pipelineTimeout)
-		if err != nil {
-			fmt.Printf("Pipeline check failed: %v\n", err)
-			os.Exit(1)
-		}
-
-		if !status.Success {
-			fmt.Printf("Pipeline failed with status: %s\n", status.Status)
-			os.Exit(1)
-		}
-
-		fmt.Println("Pipeline completed successfully")
+	// Read description file if provided
+	description, err := utils.ReadDescriptionFile(cfg.DescriptionFile)
+	if err != nil {
+		log.Fatalf("Failed to read description file: %v", err)
 	}
 
-	// Prepare additional options
-	var reviewerIDs []int
-	if *reviewers != "" {
-		for _, username := range strings.Split(*reviewers, ",") {
-			users, _, err := git.Users.ListUsers(&gitlab.ListUsersOptions{
-				Username: &username,
-			})
-			if err != nil || len(users) == 0 {
-				fmt.Printf("Warning: Failed to get reviewer ID for %s: %v\n", username, err)
-				continue
-			}
-			reviewerIDs = append(reviewerIDs, users[0].ID)
-		}
+	// Generate MR title
+	title, err := utils.GenerateMRTitle(cfg.SourceBranch, cfg.CommitPrefix, cfg.Title, cfg.UseIssueName)
+	if err != nil {
+		log.Fatalf("Failed to generate merge request title: %v", err)
 	}
 
-	var milestoneID *int
-	if *milestone != "" {
-		mid, err := strconv.Atoi(*milestone)
-		if err == nil {
-			milestoneID = &mid
-		} else {
-			fmt.Printf("Warning: Invalid milestone ID: %s\n", *milestone)
-		}
-	}
-
-	var assigneeID *int
-	if *assignee != "" {
-		users, _, err := git.Users.ListUsers(&gitlab.ListUsersOptions{
-			Username: assignee,
-		})
-		if err != nil || len(users) == 0 {
-			fmt.Printf("Warning: Failed to get assignee ID for %s: %v\n", *assignee, err)
-		} else {
-			assigneeID = &users[0].ID
-		}
+	// Prepare merge request options
+	mrOpts := &gitlab.MergeRequestOptions{
+		SourceBranch:       cfg.SourceBranch,
+		TargetBranch:       cfg.TargetBranch,
+		Title:              title,
+		Description:        description,
+		AssigneeIDs:        cfg.UserIDs,
+		ReviewerIDs:        cfg.ReviewerIDs,
+		RemoveSourceBranch: cfg.RemoveBranch,
+		Squash:             cfg.SquashCommits,
+		AllowCollaboration: cfg.AllowCollaboration,
 	}
 
 	// Create merge request
-	mrOpts := &gitlab.CreateMergeRequestOptions{
-		Title:              &mrTitle,
-		SourceBranch:       &sourceBranch,
-		TargetBranch:       targetBranch,
-		RemoveSourceBranch: removeBranch,
-		Squash:             squashCommits,
-		AssigneeID:         assigneeID,
-		MilestoneID:        milestoneID,
-		ReviewerIDs:        &reviewerIDs,
+	fmt.Printf("Creating merge request...\n")
+	fmt.Printf("  Source branch: %s\n", cfg.SourceBranch)
+	fmt.Printf("  Target branch: %s\n", cfg.TargetBranch)
+	fmt.Printf("  Title: %s\n", title)
+	if len(cfg.UserIDs) > 0 {
+		fmt.Printf("  Assignees: %s\n", utils.FormatUserIDs(cfg.UserIDs))
+	}
+	if len(cfg.ReviewerIDs) > 0 {
+		fmt.Printf("  Reviewers: %s\n", utils.FormatUserIDs(cfg.ReviewerIDs))
 	}
 
-	if description != "" {
-		mrOpts.Description = &description
-	}
-
-	mr, _, err := git.MergeRequests.CreateMergeRequest(projectID, mrOpts)
+	mr, err := client.CreateMergeRequest(cfg.ProjectID, mrOpts)
 	if err != nil {
-		fmt.Printf("Failed to create merge request: %v\n", err)
-		os.Exit(1)
+		log.Fatalf("Failed to create merge request: %v", err)
 	}
 
-	// Enable auto-merge if requested
-	if *autoMerge {
-		_, _, err = git.MergeRequests.AcceptMergeRequest(projectID, mr.IID, &gitlab.AcceptMergeRequestOptions{
-			ShouldRemoveSourceBranch: removeBranch,
-			Squash:                   squashCommits,
-		})
-		if err != nil {
-			fmt.Printf("Warning: Failed to enable auto-merge: %v\n", err)
-		}
-	}
+	// Success output
+	fmt.Printf("\n✅ Merge request created successfully!\n")
+	fmt.Printf("  ID: %d\n", mr.ID)
+	fmt.Printf("  IID: %d\n", mr.IID)
+	fmt.Printf("  Title: %s\n", mr.Title)
+	fmt.Printf("  Web URL: %s\n", mr.WebURL)
+	fmt.Printf("  State: %s\n", mr.State)
+	fmt.Printf("  Created by: gitlab-auto-mr v%s\n", Version)
 
-	// Link issue if available
-	if issueIID != "" {
-		stateEvent := "close"
-		_, _, err = git.Issues.UpdateIssue(projectID, extractIssueIIDAsInt(issueIID), &gitlab.UpdateIssueOptions{
-			StateEvent: &stateEvent,
-		})
-		if err != nil {
-			fmt.Printf("Warning: Failed to close linked issue: %v\n", err)
-		}
+	if mr.RemoveSourceBranch {
+		fmt.Printf("  ⚠️  Source branch will be removed after merge\n")
 	}
-
-	fmt.Printf("Created merge request: %s\n", mr.WebURL)
-}
-
-// Extract issue IID from branch name (e.g., "feature/123-description" -> "123")
-func extractIssueIID(branchName string) string {
-	findNumericID := func(s string) string {
-		parts := strings.Split(s, "-")
-		if len(parts) > 0 {
-			if _, err := strconv.Atoi(parts[0]); err == nil {
-				return parts[0]
-			}
-		}
-		return ""
+	if mr.Squash {
+		fmt.Printf("  📦 Commits will be squashed on merge\n")
 	}
-
-	parts := strings.Split(branchName, "/")
-	if len(parts) >= 2 {
-		if id := findNumericID(parts[1]); id != "" {
-			return id
-		}
-	}
-	return findNumericID(branchName)
-}
-
-// Convert issue IID string to int
-func extractIssueIIDAsInt(iid string) int {
-	var issueIID int
-	n, err := fmt.Sscanf(iid, "%d", &issueIID)
-	if err != nil || n != 1 || fmt.Sprintf("%d", issueIID) != iid {
-		return 0
-	}
-	return issueIID
-}
-
-// Prepare title with optional prefix
-func getTitle(prefix, title string) string {
-	if prefix == "" {
-		return title
-	}
-	if strings.HasPrefix(title, prefix) {
-		return title
-	}
-	return prefix + ": " + title
 }
