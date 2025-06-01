@@ -21,7 +21,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
 
 FROM alpine:3.22
 
-LABEL maintainer="gitlab-auto-mr" \
+LABEL maintainer="Fedor Batonogov <f.batonogov@yandex.ru>" \
       description="GitLab Auto MR - automatically creates merge requests in GitLab"
 
 # Install ca-certificates for HTTPS requests
