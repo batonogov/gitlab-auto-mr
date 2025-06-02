@@ -13,6 +13,17 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Auto Pull Request
-        uses: diillson/auto-pull-request@v1.0.1
-        with:
-          destination_branch: main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Check if PR already exists
+          if gh pr view --head ${{ github.ref_name }} --base main >/dev/null 2>&1; then
+            echo "PR already exists for branch ${{ github.ref_name }}"
+          else
+            echo "Creating PR for branch ${{ github.ref_name }}"
+            gh pr create \
+              --title "Auto PR: ${{ github.ref_name }}" \
+              --body "Automatically created pull request from branch \`${{ github.ref_name }}\`. Changes from branch: ${{ github.ref_name }}. This PR was automatically created by GitHub Actions." \
+              --base main \
+              --head ${{ github.ref_name }}
+          fi

@@ -2,74 +2,178 @@ version: '3'
 
 vars:
   BINARY_NAME: gitlab_auto_mr
-  DOCKER_IMAGE: gitlab-auto-mr
+  BUILD_DIR: ./build
+  MAIN_PACKAGE: .
+  VERSION:
+    sh: git describe --tags --always --dirty 2>/dev/null || echo "dev"
+  GIT_COMMIT:
+    sh: git rev-parse HEAD 2>/dev/null || echo "unknown"
+  BUILD_DATE:
+    sh: date -u +%Y-%m-%dT%H:%M:%SZ
+  LDFLAGS: -ldflags="-w -s -X main.Version={{.VERSION}} -X main.GitCommit={{.GIT_COMMIT}} -X main.BuildDate={{.BUILD_DATE}}"
 
 tasks:
-  build:
-    desc: Build the binary
+  default:
     cmds:
-      - go build -o {{.BINARY_NAME}}
+      - task: build
+
+  deps:
+    desc: Download Go modules
+    cmds:
+      - go mod download
+      - go mod tidy
+
+  deps-verify:
+    desc: Verify Go dependencies
+    cmds:
+      - go mod verify
+      - |
+        if ! go mod tidy -diff; then
+          echo "go.mod or go.sum needs tidying. Run 'task deps' to fix."
+          exit 1
+        fi
+
+  setup-hooks:
+    desc: Install pre-commit hooks
+    cmds:
+      - |
+        if command -v pre-commit >/dev/null 2>&1; then
+          pre-commit install
+          pre-commit install --hook-type pre-push
+          echo "Pre-commit hooks installed successfully"
+        else
+          echo "pre-commit not found. Install it with: pip install pre-commit"
+          exit 1
+        fi
+
+  build:
+    desc: Build the application
+    deps: [deps]
+    cmds:
+      - mkdir -p {{.BUILD_DIR}}
+      - go build {{.LDFLAGS}} -o {{.BUILD_DIR}}/{{.BINARY_NAME}} {{.MAIN_PACKAGE}}
+
+  build-all:
+    desc: Build for all platforms
+    deps: [deps]
+    cmds:
+      - mkdir -p {{.BUILD_DIR}}
+      - GOOS=linux GOARCH=amd64 go build {{.LDFLAGS}} -o {{.BUILD_DIR}}/{{.BINARY_NAME}}-linux-amd64 {{.MAIN_PACKAGE}}
+      - GOOS=linux GOARCH=arm64 go build {{.LDFLAGS}} -o {{.BUILD_DIR}}/{{.BINARY_NAME}}-linux-arm64 {{.MAIN_PACKAGE}}
+      - GOOS=windows GOARCH=amd64 go build {{.LDFLAGS}} -o {{.BUILD_DIR}}/{{.BINARY_NAME}}-windows-amd64.exe {{.MAIN_PACKAGE}}
+      - GOOS=darwin GOARCH=amd64 go build {{.LDFLAGS}} -o {{.BUILD_DIR}}/{{.BINARY_NAME}}-darwin-amd64 {{.MAIN_PACKAGE}}
+      - GOOS=darwin GOARCH=arm64 go build {{.LDFLAGS}} -o {{.BUILD_DIR}}/{{.BINARY_NAME}}-darwin-arm64 {{.MAIN_PACKAGE}}
 
   test:
     desc: Run tests
     cmds:
       - go test -v ./...
 
-  test:cover:
+  test-coverage:
     desc: Run tests with coverage
     cmds:
-      - go test -v -coverprofile=coverage.out ./...
+      - go test -v -race -coverprofile=coverage.out ./...
       - go tool cover -html=coverage.out -o coverage.html
-      - rm coverage.out
+      - go tool cover -func=coverage.out
 
   lint:
-    desc: Run go vet and other standard checks
+    desc: Run linters
     cmds:
       - go vet ./...
-      - go fmt ./...
+      - |
+        if [ -n "$(gofmt -l .)" ]; then
+          echo "Code not formatted properly. Run 'task fmt' to fix."
+          echo "Files that need formatting:"
+          gofmt -l .
+          exit 1
+        fi
+
+  fmt:
+    desc: Format code
+    cmds:
+      - gofmt -w .
+
+  run:
+    desc: Run the application
+    deps: [build]
+    cmds:
+      - "{{.BUILD_DIR}}/{{.BINARY_NAME}} {{.CLI_ARGS}}"
+    vars:
+      CLI_ARGS: '{{default "" .CLI_ARGS}}'
+
+  install:
+    desc: Install the application
+    deps: [deps]
+    cmds:
+      - go install {{.MAIN_PACKAGE}}
 
   clean:
     desc: Clean build artifacts
     cmds:
-      - rm -f {{.BINARY_NAME}}
-      - rm -f coverage.html
+      - rm -rf {{.BUILD_DIR}}
+      - rm -f coverage.out coverage.html
 
-  docker:build:
+  docker-build:
     desc: Build Docker image
     cmds:
-      - docker build -t {{.DOCKER_IMAGE}} .
+      - docker build --build-arg VERSION={{.VERSION}} --build-arg GIT_COMMIT={{.GIT_COMMIT}} --build-arg BUILD_DATE={{.BUILD_DATE}} -t gitlab-auto-mr:{{.VERSION}} -t gitlab-auto-mr:latest .
 
-  docker:run:
-    desc: Run Docker container (requires environment variables)
+  docker-run:
+    desc: Run Docker container
+    deps: [docker-build]
     cmds:
-      - >
-        docker run --rm
-        -e GITLAB_TOKEN=${GITLAB_TOKEN}
-        -e CI_SERVER_URL=${CI_SERVER_URL}
-        -e CI_PROJECT_ID=${CI_PROJECT_ID}
-        -e CI_COMMIT_REF_NAME=${CI_COMMIT_REF_NAME}
-        -e CI_COMMIT_TITLE=${CI_COMMIT_TITLE}
-        {{.DOCKER_IMAGE}} {{.CLI_ARGS}}
+      - docker run --rm gitlab-auto-mr:latest {{.CLI_ARGS}}
+    vars:
+      CLI_ARGS: '{{default "" .CLI_ARGS}}'
 
-  install-deps:
-    desc: Install development dependencies
+  pre-commit:
+    desc: Run pre-commit checks
     cmds:
-      - go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
-      - go mod tidy
-
-  dev:setup:
-    desc: Setup development environment
-    cmds:
-      - task: install-deps
-      - task: build
+      - task: fmt
+      - task: lint
       - task: test
 
+  ci:
+    desc: Run CI pipeline
+    cmds:
+      - task: deps
+      - task: lint
+      - task: test
+      - task: build-all
+
+  version:
+    desc: Show version information
+    cmds:
+      - echo "Version{{":"}} {{.VERSION}}"
+      - echo "Git Commit{{":"}} {{.GIT_COMMIT}}"
+      - echo "Build Date{{":"}} {{.BUILD_DATE}}"
+
+  tag:
+    desc: Create a new git tag (usage{{":"}} task tag TAG=v1.0.0)
+    cmds:
+      - |
+        if [ -z "{{.TAG}}" ]; then
+          echo "Usage: task tag TAG=v1.0.0"
+          exit 1
+        fi
+      - git tag -a "{{.TAG}}" -m "Release {{.TAG}}"
+      - echo "Created tag {{.TAG}}"
+      - echo "Push with{{":"}} git push origin {{.TAG}}"
+
+  release:
+    desc: Build release artifacts for a tagged version
+    deps: [clean, test]
+    cmds:
+      - |
+        if ! git describe --exact-match --tags HEAD >/dev/null 2>&1; then
+          echo "Error: HEAD is not on a tag. Create a tag first with 'task tag TAG=vX.Y.Z'"
+          exit 1
+        fi
+      - task: build-all
+      - echo "Release artifacts built in {{.BUILD_DIR}}/"
+      - echo "Version{{":"}} {{.VERSION}}"
+
   help:
-    desc: Show available commands
+    desc: Show available tasks
     cmds:
       - task --list
-
-  default:
-    desc: Show help
-    cmds:
-      - task: help
