@@ -1,0 +1,205 @@
+name: 🤖 Auto Pull Request
+
+on:
+  push:
+    branches:
+      - '*'
+      - '!main'
+
+jobs:
+  pull-request:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 📊 Analyze Changes
+        id: analyze
+        run: |
+          # Get branch info
+          BRANCH_NAME="${{ github.ref_name }}"
+          echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
+
+          # Get commit count
+          COMMIT_COUNT=$(git rev-list --count HEAD ^origin/main)
+          echo "commit_count=$COMMIT_COUNT" >> $GITHUB_OUTPUT
+
+          # Get file statistics
+          FILES_CHANGED=$(git diff --name-only origin/main...HEAD | wc -l)
+          echo "files_changed=$FILES_CHANGED" >> $GITHUB_OUTPUT
+
+          # Get line statistics
+          STATS=$(git diff --shortstat origin/main...HEAD)
+          echo "stats=$STATS" >> $GITHUB_OUTPUT
+
+          # Get changed files list (limit to 20)
+          CHANGED_FILES=$(git diff --name-only origin/main...HEAD | head -20 | sed 's/^/- `/' | sed 's/$/`/')
+          echo "changed_files<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGED_FILES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+          # Get recent commits
+          COMMITS=$(git log --oneline origin/main...HEAD --format="- %s (%h)" | head -10)
+          echo "commits<<EOF" >> $GITHUB_OUTPUT
+          echo "$COMMITS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+          # Get author info
+          AUTHOR=$(git log -1 --format="%an")
+          echo "author=$AUTHOR" >> $GITHUB_OUTPUT
+
+          # Check for important files
+          IMPORTANT_FILES=""
+          if git diff --name-only origin/main...HEAD | grep -q "README.md"; then
+            IMPORTANT_FILES="$IMPORTANT_FILES📖 README.md updated\n"
+          fi
+          if git diff --name-only origin/main...HEAD | grep -q "package.json\|go.mod\|requirements.txt\|Cargo.toml"; then
+            IMPORTANT_FILES="$IMPORTANT_FILES📦 Dependencies updated\n"
+          fi
+          if git diff --name-only origin/main...HEAD | grep -q "Dockerfile\|docker-compose"; then
+            IMPORTANT_FILES="$IMPORTANT_FILES🐳 Docker configuration updated\n"
+          fi
+          if git diff --name-only origin/main...HEAD | grep -q ".github/workflows"; then
+            IMPORTANT_FILES="$IMPORTANT_FILES⚙️ GitHub Actions updated\n"
+          fi
+          echo "important_files=$IMPORTANT_FILES" >> $GITHUB_OUTPUT
+
+      - name: 🔍 Check Existing PR
+        id: check_pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh pr view --head ${{ github.ref_name }} --base main >/dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            PR_URL=$(gh pr view --head ${{ github.ref_name }} --base main --json url -q .url)
+            echo "url=$PR_URL" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 🎯 Determine PR Labels
+        id: labels
+        run: |
+          LABELS=""
+
+          # Check for different types of changes
+          if git diff --name-only origin/main...HEAD | grep -q "\.md$"; then
+            LABELS="$LABELS,documentation"
+          fi
+          if git diff --name-only origin/main...HEAD | grep -q "\.go$\|\.py$\|\.js$\|\.ts$\|\.java$\|\.cpp$\|\.c$"; then
+            LABELS="$LABELS,code"
+          fi
+          if git diff --name-only origin/main...HEAD | grep -q "test\|spec"; then
+            LABELS="$LABELS,tests"
+          fi
+          if git diff --name-only origin/main...HEAD | grep -q "\.yml$\|\.yaml$\|\.json$"; then
+            LABELS="$LABELS,configuration"
+          fi
+          if git diff --name-only origin/main...HEAD | grep -q "Dockerfile\|docker-compose"; then
+            LABELS="$LABELS,docker"
+          fi
+
+          # Remove leading comma
+          LABELS=$(echo "$LABELS" | sed 's/^,//')
+          echo "labels=$LABELS" >> $GITHUB_OUTPUT
+
+      - name: 🚀 Create or Update PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ steps.check_pr.outputs.exists }}" = "true" ]; then
+            echo "✅ PR already exists: ${{ steps.check_pr.outputs.url }}"
+            echo "Updating PR with latest information..."
+
+            # Update PR body
+            gh pr edit ${{ github.ref_name }} --body "$(cat << 'EOF'
+          ## 🔄 Auto-Generated Pull Request
+
+          > **Branch:** \`${{ steps.analyze.outputs.branch_name }}\`
+          > **Author:** ${{ steps.analyze.outputs.author }}
+          > **Created by:** 🤖 GitHub Actions
+
+          ### 📊 Change Summary
+          - **Files changed:** ${{ steps.analyze.outputs.files_changed }}
+          - **Commits:** ${{ steps.analyze.outputs.commit_count }}
+          - **Statistics:** ${{ steps.analyze.outputs.stats }}
+
+          ### 🎯 Important Changes
+          ${{ steps.analyze.outputs.important_files }}
+
+          ### 📝 Recent Commits
+          ${{ steps.analyze.outputs.commits }}
+
+          ### 📁 Changed Files
+          <details>
+          <summary>Click to expand list of changed files</summary>
+
+          ${{ steps.analyze.outputs.changed_files }}
+
+          </details>
+
+          ---
+
+          🤖 This PR was automatically created and updated by GitHub Actions.
+          📅 Last updated: $(date '+%Y-%m-%d %H:%M:%S UTC')
+          EOF
+          )"
+          else
+            echo "🆕 Creating new PR for branch ${{ github.ref_name }}"
+
+            gh pr create \
+              --title "🚀 Auto PR: ${{ steps.analyze.outputs.branch_name }}" \
+              --body "$(cat << 'EOF'
+          ## 🔄 Auto-Generated Pull Request
+
+          > **Branch:** \`${{ steps.analyze.outputs.branch_name }}\`
+          > **Author:** ${{ steps.analyze.outputs.author }}
+          > **Created by:** 🤖 GitHub Actions
+
+          ### 📊 Change Summary
+          - **Files changed:** ${{ steps.analyze.outputs.files_changed }}
+          - **Commits:** ${{ steps.analyze.outputs.commit_count }}
+          - **Statistics:** ${{ steps.analyze.outputs.stats }}
+
+          ### 🎯 Important Changes
+          ${{ steps.analyze.outputs.important_files }}
+
+          ### 📝 Recent Commits
+          ${{ steps.analyze.outputs.commits }}
+
+          ### 📁 Changed Files
+          <details>
+          <summary>Click to expand list of changed files</summary>
+
+          ${{ steps.analyze.outputs.changed_files }}
+
+          </details>
+
+          ---
+
+          🤖 This PR was automatically created by GitHub Actions.
+          📅 Created: $(date '+%Y-%m-%d %H:%M:%S UTC')
+
+          ### 🔍 Review Checklist
+          - [ ] Code changes reviewed
+          - [ ] Tests pass
+          - [ ] Documentation updated (if needed)
+          - [ ] No breaking changes (or documented)
+          EOF
+          )" \
+              --base main \
+              --head ${{ github.ref_name }} \
+              --label "${{ steps.labels.outputs.labels }}"
+
+            echo "✅ PR created successfully!"
+          fi
+
+      - name: 📢 Summary
+        run: |
+          echo "## 📋 PR Automation Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch:** ${{ steps.analyze.outputs.branch_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Files Changed:** ${{ steps.analyze.outputs.files_changed }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commits:** ${{ steps.analyze.outputs.commit_count }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Author:** ${{ steps.analyze.outputs.author }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Action:** $([ '${{ steps.check_pr.outputs.exists }}' = 'true' ] && echo 'Updated existing PR' || echo 'Created new PR')" >> $GITHUB_STEP_SUMMARY
