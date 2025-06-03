@@ -27,8 +27,6 @@ LABEL maintainer="Fedor Batonogov <f.batonogov@yandex.ru>" \
 # Install ca-certificates for HTTPS requests
 RUN apk --no-cache add ca-certificates tzdata
 
-WORKDIR /home/appuser
-
 # Copy the binary from builder stage
 COPY --from=builder /app/gitlab_auto_mr /usr/local/bin/gitlab_auto_mr
 
