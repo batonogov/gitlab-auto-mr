@@ -1,10 +1,20 @@
 # GitLab Auto MR
 
+[![CI](https://github.com/your-org/gitlab-auto-mr/workflows/CI/badge.svg)](https://github.com/your-org/gitlab-auto-mr/actions/workflows/ci.yml)
+[![Docker Image](https://github.com/your-org/gitlab-auto-mr/workflows/Docker%20Image%20CI%20Linux%20ghcr.io/badge.svg)](https://github.com/your-org/gitlab-auto-mr/actions/workflows/docker-image.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/your-username/gist-id/raw/coverage.json)](https://github.com/your-org/gitlab-auto-mr/actions/workflows/ci.yml)
+[![Go Version](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/your-username/gist-id/raw/go-version.json)](https://golang.org/)
+[![Release](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/your-username/gist-id/raw/release.json)](https://github.com/your-org/gitlab-auto-mr/releases)
+[![License](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/your-username/gist-id/raw/license.json)](https://github.com/your-org/gitlab-auto-mr/blob/main/LICENSE)
+[![Docker Pulls](https://img.shields.io/docker/pulls/ghcr.io/your-org/gitlab-auto-mr)](https://ghcr.io/your-org/gitlab-auto-mr)
+[![Go Report Card](https://goreportcard.com/badge/github.com/your-org/gitlab-auto-mr)](https://goreportcard.com/report/github.com/your-org/gitlab-auto-mr)
+
 A Go CLI tool for automatically creating merge requests in GitLab. Zero external dependencies, uses only Go standard library.
 
 ## Installation
 
 ### Download Binary
+
 ```bash
 # Linux
 curl -L -o gitlab_auto_mr https://github.com/your-org/gitlab-auto-mr/releases/latest/download/gitlab_auto_mr-linux-amd64
@@ -19,6 +29,7 @@ curl -L -o gitlab_auto_mr.exe https://github.com/your-org/gitlab-auto-mr/release
 ```
 
 ### Build from Source
+
 ```bash
 git clone https://github.com/your-org/gitlab-auto-mr.git
 cd gitlab-auto-mr
@@ -26,6 +37,7 @@ go build -o gitlab_auto_mr .
 ```
 
 ### Docker
+
 ```bash
 docker pull registry.gitlab.com/your-group/gitlab-auto-mr:latest
 ```
@@ -33,6 +45,7 @@ docker pull registry.gitlab.com/your-group/gitlab-auto-mr:latest
 ## Usage
 
 ### Basic Example
+
 ```bash
 gitlab_auto_mr \
   --private-token "glpat-xxxxxxxxxxxxxxxxxxxx" \
@@ -43,6 +56,7 @@ gitlab_auto_mr \
 ```
 
 ### With Environment Variables
+
 ```bash
 export GITLAB_PRIVATE_TOKEN="glpat-xxxxxxxxxxxxxxxxxxxx"
 export CI_COMMIT_REF_NAME="feature/my-feature"
@@ -53,6 +67,7 @@ gitlab_auto_mr --target-branch main
 ```
 
 ### Advanced Usage
+
 ```bash
 gitlab_auto_mr \
   --target-branch main \
@@ -86,23 +101,23 @@ create_mr:
 
 ## Command Line Options
 
-| Option | Environment Variable | Description |
-|--------|---------------------|-------------|
-| `--private-token` | `GITLAB_PRIVATE_TOKEN` | GitLab private token (required) |
-| `--source-branch` | `CI_COMMIT_REF_NAME` | Source branch name (required) |
-| `--target-branch` | | Target branch name (default: "main") |
-| `--project-id` | `CI_PROJECT_ID` | GitLab project ID (required) |
-| `--gitlab-url` | `CI_PROJECT_URL` | GitLab URL (required) |
-| `--user-id` | `GITLAB_USER_ID` | Assignee user IDs (comma-separated) |
-| `--reviewer-id` | | Reviewer user IDs (comma-separated) |
-| `--title` | | Custom MR title |
-| `--description` | | Path to description file |
-| `--commit-prefix` | | Title prefix (default: "Draft") |
-| `--use-issue-name` | | Extract issue number from branch name |
-| `--remove-branch` | | Remove source branch after merge |
-| `--squash-commits` | | Squash commits on merge |
-| `--mr-exists` | | Check if MR exists (don't create) |
-| `--version` | | Show version information |
+| Option             | Environment Variable   | Description                           |
+| ------------------ | ---------------------- | ------------------------------------- |
+| `--private-token`  | `GITLAB_PRIVATE_TOKEN` | GitLab private token (required)       |
+| `--source-branch`  | `CI_COMMIT_REF_NAME`   | Source branch name (required)         |
+| `--target-branch`  |                        | Target branch name (default: "main")  |
+| `--project-id`     | `CI_PROJECT_ID`        | GitLab project ID (required)          |
+| `--gitlab-url`     | `CI_PROJECT_URL`       | GitLab URL (required)                 |
+| `--user-id`        | `GITLAB_USER_ID`       | Assignee user IDs (comma-separated)   |
+| `--reviewer-id`    |                        | Reviewer user IDs (comma-separated)   |
+| `--title`          |                        | Custom MR title                       |
+| `--description`    |                        | Path to description file              |
+| `--commit-prefix`  |                        | Title prefix (default: "Draft")       |
+| `--use-issue-name` |                        | Extract issue number from branch name |
+| `--remove-branch`  |                        | Remove source branch after merge      |
+| `--squash-commits` |                        | Squash commits on merge               |
+| `--mr-exists`      |                        | Check if MR exists (don't create)     |
+| `--version`        |                        | Show version information              |
 
 ## Development
 
@@ -133,6 +148,7 @@ pre-commit run --all-files
 ```
 
 Available hooks:
+
 - **go-deps**: Verify Go dependencies are clean
 - **go-fmt**: Format Go code with `gofmt`
 - **go-lint**: Run Go linters (`go vet` + format check)
@@ -170,8 +186,9 @@ task release
 ### Version Components
 
 The version information includes:
+
 - **Version**: Git tag or describe output
-- **Git Commit**: Full SHA of the build commit  
+- **Git Commit**: Full SHA of the build commit
 - **Build Date**: UTC timestamp when binary was built
 
 All version info is embedded at build time via Go's `-ldflags`.
