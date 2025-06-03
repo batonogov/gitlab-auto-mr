@@ -104,6 +104,38 @@ jobs:
           LABELS=$(echo "$LABELS" | sed 's/^,//')
           echo "labels=$LABELS" >> $GITHUB_OUTPUT
 
+      - name: 🏷️ Ensure Labels Exist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Create common labels if they don't exist
+          COMMON_LABELS="documentation code tests configuration docker"
+
+          for label in $COMMON_LABELS; do
+            if ! gh label list | grep -q "^$label"; then
+              case $label in
+                documentation)
+                  gh label create "$label" --description "Changes to documentation" --color "0075ca" || true
+                  ;;
+                code)
+                  gh label create "$label" --description "Changes to source code" --color "d73a4a" || true
+                  ;;
+                tests)
+                  gh label create "$label" --description "Changes to tests" --color "0e8a16" || true
+                  ;;
+                configuration)
+                  gh label create "$label" --description "Changes to configuration files" --color "f9d0c4" || true
+                  ;;
+                docker)
+                  gh label create "$label" --description "Changes to Docker configuration" --color "2188ff" || true
+                  ;;
+              esac
+              echo "✅ Created label: $label"
+            else
+              echo "ℹ️ Label already exists: $label"
+            fi
+          done
+
       - name: 🚀 Create or Update PR
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -189,10 +221,24 @@ jobs:
           EOF
           )" \
               --base main \
-              --head ${{ github.ref_name }} \
-              --label "${{ steps.labels.outputs.labels }}"
+              --head ${{ github.ref_name }}
 
             echo "✅ PR created successfully!"
+
+            # Add labels if any were determined
+            if [ -n "${{ steps.labels.outputs.labels }}" ]; then
+              echo "🏷️ Adding labels to PR..."
+              IFS=',' read -ra LABEL_ARRAY <<< "${{ steps.labels.outputs.labels }}"
+              for label in "${LABEL_ARRAY[@]}"; do
+                if [ -n "$label" ]; then
+                  if gh pr edit ${{ github.ref_name }} --add-label "$label" 2>/dev/null; then
+                    echo "✅ Added label: $label"
+                  else
+                    echo "⚠️ Could not add label: $label (may not exist)"
+                  fi
+                fi
+              done
+            fi
           fi
 
       - name: 📢 Summary
