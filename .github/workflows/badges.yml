@@ -20,6 +20,7 @@ jobs:
     name: Update Status Badges
     runs-on: ubuntu-latest
     if: (github.repository_owner == github.actor || github.event_name == 'workflow_run') && vars.GIST_ID != ''
+    continue-on-error: true
 
     steps:
       - name: Checkout
@@ -52,6 +53,7 @@ jobs:
           message: ${{ steps.coverage.outputs.coverage }}%
           color: ${{ steps.coverage.outputs.coverage > 80 && 'brightgreen' || steps.coverage.outputs.coverage > 60 && 'yellow' || 'red' }}
         if: vars.GIST_ID != ''
+        continue-on-error: true
 
       - name: Create build badge
         uses: schneegans/dynamic-badges-action@v1.7.0
@@ -63,6 +65,7 @@ jobs:
           message: ${{ job.status == 'success' && 'passing' || 'failing' }}
           color: ${{ job.status == 'success' && 'brightgreen' || 'red' }}
         if: vars.GIST_ID != ''
+        continue-on-error: true
 
       - name: Get Go version
         id: go-version
@@ -80,6 +83,7 @@ jobs:
           message: ${{ steps.go-version.outputs.version }}
           color: blue
         if: vars.GIST_ID != ''
+        continue-on-error: true
 
       - name: Get latest release
         id: release
@@ -100,6 +104,7 @@ jobs:
           message: ${{ steps.release.outputs.version }}
           color: blue
         if: vars.GIST_ID != ''
+        continue-on-error: true
 
       - name: Create license badge
         uses: schneegans/dynamic-badges-action@v1.7.0
@@ -111,11 +116,13 @@ jobs:
           message: MIT
           color: green
         if: vars.GIST_ID != ''
+        continue-on-error: true
 
   docker-badge:
     name: Update Docker Badge
     runs-on: ubuntu-latest
     if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.name == 'Docker Image CI Linux ghcr.io' && vars.GIST_ID != ''
+    continue-on-error: true
 
     steps:
       - name: Create Docker badge
@@ -127,3 +134,4 @@ jobs:
           label: Docker
           message: available
           color: blue
+        continue-on-error: true
