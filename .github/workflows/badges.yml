@@ -1,5 +1,9 @@
 name: Update Badges
 
+# Note: This workflow requires GIST_ID variable to be set in repository variables
+# Create a public gist and add its ID to repository variables as GIST_ID
+# Example: https://gist.github.com/username/abc123def456 -> GIST_ID = abc123def456
+
 on:
   push:
     branches: [ main ]
@@ -15,7 +19,8 @@ jobs:
   update-badges:
     name: Update Status Badges
     runs-on: ubuntu-latest
-    if: github.repository_owner == github.actor || github.event_name == 'workflow_run'
+    if: (github.repository_owner == github.actor || github.event_name == 'workflow_run') && vars.GIST_ID != ''
+    continue-on-error: true
 
     steps:
       - name: Checkout
@@ -42,21 +47,25 @@ jobs:
         uses: schneegans/dynamic-badges-action@v1.7.0
         with:
           auth: ${{ secrets.GITHUB_TOKEN }}
-          gistID: ${{ secrets.GIST_ID }}
+          gistID: ${{ vars.GIST_ID }}
           filename: coverage.json
           label: Coverage
           message: ${{ steps.coverage.outputs.coverage }}%
           color: ${{ steps.coverage.outputs.coverage > 80 && 'brightgreen' || steps.coverage.outputs.coverage > 60 && 'yellow' || 'red' }}
+        if: vars.GIST_ID != ''
+        continue-on-error: true
 
       - name: Create build badge
         uses: schneegans/dynamic-badges-action@v1.7.0
         with:
           auth: ${{ secrets.GITHUB_TOKEN }}
-          gistID: ${{ secrets.GIST_ID }}
+          gistID: ${{ vars.GIST_ID }}
           filename: build.json
           label: Build
           message: ${{ job.status == 'success' && 'passing' || 'failing' }}
           color: ${{ job.status == 'success' && 'brightgreen' || 'red' }}
+        if: vars.GIST_ID != ''
+        continue-on-error: true
 
       - name: Get Go version
         id: go-version
@@ -68,11 +77,13 @@ jobs:
         uses: schneegans/dynamic-badges-action@v1.7.0
         with:
           auth: ${{ secrets.GITHUB_TOKEN }}
-          gistID: ${{ secrets.GIST_ID }}
+          gistID: ${{ vars.GIST_ID }}
           filename: go-version.json
           label: Go
           message: ${{ steps.go-version.outputs.version }}
           color: blue
+        if: vars.GIST_ID != ''
+        continue-on-error: true
 
       - name: Get latest release
         id: release
@@ -87,34 +98,40 @@ jobs:
         uses: schneegans/dynamic-badges-action@v1.7.0
         with:
           auth: ${{ secrets.GITHUB_TOKEN }}
-          gistID: ${{ secrets.GIST_ID }}
+          gistID: ${{ vars.GIST_ID }}
           filename: release.json
           label: Release
           message: ${{ steps.release.outputs.version }}
           color: blue
+        if: vars.GIST_ID != ''
+        continue-on-error: true
 
       - name: Create license badge
         uses: schneegans/dynamic-badges-action@v1.7.0
         with:
           auth: ${{ secrets.GITHUB_TOKEN }}
-          gistID: ${{ secrets.GIST_ID }}
+          gistID: ${{ vars.GIST_ID }}
           filename: license.json
           label: License
           message: MIT
           color: green
+        if: vars.GIST_ID != ''
+        continue-on-error: true
 
   docker-badge:
     name: Update Docker Badge
     runs-on: ubuntu-latest
-    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.name == 'Docker Image CI Linux ghcr.io'
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.name == 'Docker Image CI Linux ghcr.io' && vars.GIST_ID != ''
+    continue-on-error: true
 
     steps:
       - name: Create Docker badge
         uses: schneegans/dynamic-badges-action@v1.7.0
         with:
           auth: ${{ secrets.GITHUB_TOKEN }}
-          gistID: ${{ secrets.GIST_ID }}
+          gistID: ${{ vars.GIST_ID }}
           filename: docker.json
           label: Docker
           message: available
           color: blue
+        continue-on-error: true

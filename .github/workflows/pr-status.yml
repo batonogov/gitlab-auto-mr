@@ -47,36 +47,8 @@ jobs:
       - name: Build application
         run: go build -v ./...
 
-  docker-build-test:
-    name: Docker Build Test
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: gitlab-auto-mr
-          tags: |
-            type=ref,event=pr
-            type=sha,prefix=pr-{{branch}}-
-
-      - name: Build Docker image (no push)
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: Dockerfile
-          platforms: linux/amd64
-          push: false
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+  # Docker build test is now handled by the main docker-image.yml workflow
+  # which publishes PR images with tags like pr-123
 
   pr-info:
     name: PR Information
