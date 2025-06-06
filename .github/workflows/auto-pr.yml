@@ -173,38 +173,38 @@ jobs:
             # Create PR body with simple concatenation
             PR_BODY="## 🔄 Auto-Generated Pull Request
 
-> **Branch:** \`${{ steps.analyze.outputs.branch_name }}\`
-> **Author:** ${{ steps.analyze.outputs.author }}
-> **Created by:** 🤖 GitHub Actions
+          > **Branch:** \`${{ steps.analyze.outputs.branch_name }}\`
+          > **Author:** ${{ steps.analyze.outputs.author }}
+          > **Created by:** 🤖 GitHub Actions
 
-### 📊 Change Summary
-- **Files changed:** ${{ steps.analyze.outputs.files_changed }}
-- **Commits:** ${{ steps.analyze.outputs.commit_count }}
-- **Statistics:** ${{ steps.analyze.outputs.stats }}
+          ### 📊 Change Summary
+          - **Files changed:** ${{ steps.analyze.outputs.files_changed }}
+          - **Commits:** ${{ steps.analyze.outputs.commit_count }}
+          - **Statistics:** ${{ steps.analyze.outputs.stats }}
 
-### 🎯 Important Changes
-$(echo -e '${{ steps.analyze.outputs.important_files }}')
+          ### 🎯 Important Changes
+          $(echo -e '${{ steps.analyze.outputs.important_files }}')
 
-### 📝 Recent Commits
-${{ steps.analyze.outputs.commits }}
+          ### 📝 Recent Commits
+          ${{ steps.analyze.outputs.commits }}
 
-### 📁 Changed Files
-<details>
-<summary>Click to expand list of changed files</summary>
+          ### 📁 Changed Files
+          <details>
+          <summary>Click to expand list of changed files</summary>
 
-${{ steps.analyze.outputs.changed_files }}
+          ${{ steps.analyze.outputs.changed_files }}
 
-</details>
+          </details>
 
----
+          ---
 
-### 🐳 Docker Image
-A Docker image will be automatically built and published for this PR with tag \`pr-${PR_NUM}\`.
+          ### 🐳 Docker Image
+          A Docker image will be automatically built and published for this PR with tag \`pr-${PR_NUM}\`.
 
-You can find the exact command in the Docker workflow run or check the GitHub Container Registry.
+          You can find the exact command in the Docker workflow run or check the GitHub Container Registry.
 
-🤖 This PR was automatically created and updated by GitHub Actions.
-📅 Last updated: ${CURRENT_DATE}"
+          🤖 This PR was automatically created and updated by GitHub Actions.
+          📅 Last updated: ${CURRENT_DATE}"
 
             # Update PR body
             gh pr edit $PR_NUM --body "$PR_BODY"
@@ -217,45 +217,45 @@ You can find the exact command in the Docker workflow run or check the GitHub Co
             # Create initial PR body
             INITIAL_PR_BODY="## 🔄 Auto-Generated Pull Request
 
-> **Branch:** \`${{ steps.analyze.outputs.branch_name }}\`
-> **Author:** ${{ steps.analyze.outputs.author }}
-> **Created by:** 🤖 GitHub Actions
+          > **Branch:** \`${{ steps.analyze.outputs.branch_name }}\`
+          > **Author:** ${{ steps.analyze.outputs.author }}
+          > **Created by:** 🤖 GitHub Actions
 
-### 📊 Change Summary
-- **Files changed:** ${{ steps.analyze.outputs.files_changed }}
-- **Commits:** ${{ steps.analyze.outputs.commit_count }}
-- **Statistics:** ${{ steps.analyze.outputs.stats }}
+          ### 📊 Change Summary
+          - **Files changed:** ${{ steps.analyze.outputs.files_changed }}
+          - **Commits:** ${{ steps.analyze.outputs.commit_count }}
+          - **Statistics:** ${{ steps.analyze.outputs.stats }}
 
-### 🎯 Important Changes
-$(echo -e '${{ steps.analyze.outputs.important_files }}')
+          ### 🎯 Important Changes
+          $(echo -e '${{ steps.analyze.outputs.important_files }}')
 
-### 📝 Recent Commits
-${{ steps.analyze.outputs.commits }}
+          ### 📝 Recent Commits
+          ${{ steps.analyze.outputs.commits }}
 
-### 📁 Changed Files
-<details>
-<summary>Click to expand list of changed files</summary>
+          ### 📁 Changed Files
+          <details>
+          <summary>Click to expand list of changed files</summary>
 
-${{ steps.analyze.outputs.changed_files }}
+          ${{ steps.analyze.outputs.changed_files }}
 
-</details>
+          </details>
 
----
+          ---
 
-### 🐳 Docker Image
-A Docker image will be automatically built and published for this PR with tag \`pr-TBD\`.
+          ### 🐳 Docker Image
+          A Docker image will be automatically built and published for this PR with tag \`pr-TBD\`.
 
-You can find the exact command in the Docker workflow run or check the GitHub Container Registry.
+          You can find the exact command in the Docker workflow run or check the GitHub Container Registry.
 
-🤖 This PR was automatically created by GitHub Actions.
-📅 Created: ${CURRENT_DATE}
+          🤖 This PR was automatically created by GitHub Actions.
+          📅 Created: ${CURRENT_DATE}
 
-### 🔍 Review Checklist
-- [ ] Code changes reviewed
-- [ ] Tests pass
-- [ ] Documentation updated (if needed)
-- [ ] No breaking changes (or documented)
-- [ ] Docker image tested (if applicable)"
+          ### 🔍 Review Checklist
+          - [ ] Code changes reviewed
+          - [ ] Tests pass
+          - [ ] Documentation updated (if needed)
+          - [ ] No breaking changes (or documented)
+          - [ ] Docker image tested (if applicable)"
 
             # Try to create PR with error handling
             if gh pr create \
@@ -264,130 +264,130 @@ You can find the exact command in the Docker workflow run or check the GitHub Co
               --base main \
               --head ${{ github.ref_name }}; then
 
-                        # Get the newly created PR number and update Docker tag info
-                        NEW_PR_NUMBER=$(gh pr list --head ${{ github.ref_name }} --base main --json number --jq '.[0].number')
-                        echo "📋 New PR number: #$NEW_PR_NUMBER"
+              # Get the newly created PR number and update Docker tag info
+              NEW_PR_NUMBER=$(gh pr list --head ${{ github.ref_name }} --base main --json number --jq '.[0].number')
+              echo "📋 New PR number: #$NEW_PR_NUMBER"
 
-                        # Update PR body with correct PR number for Docker tag
-                        UPDATED_PR_BODY="## 🔄 Auto-Generated Pull Request
+              # Update PR body with correct PR number for Docker tag
+              UPDATED_PR_BODY="## 🔄 Auto-Generated Pull Request
 
-> **Branch:** \`${{ steps.analyze.outputs.branch_name }}\`
-> **Author:** ${{ steps.analyze.outputs.author }}
-> **Created by:** 🤖 GitHub Actions
+          > **Branch:** \`${{ steps.analyze.outputs.branch_name }}\`
+          > **Author:** ${{ steps.analyze.outputs.author }}
+          > **Created by:** 🤖 GitHub Actions
 
-### 📊 Change Summary
-- **Files changed:** ${{ steps.analyze.outputs.files_changed }}
-- **Commits:** ${{ steps.analyze.outputs.commit_count }}
-- **Statistics:** ${{ steps.analyze.outputs.stats }}
+          ### 📊 Change Summary
+          - **Files changed:** ${{ steps.analyze.outputs.files_changed }}
+          - **Commits:** ${{ steps.analyze.outputs.commit_count }}
+          - **Statistics:** ${{ steps.analyze.outputs.stats }}
 
-### 🎯 Important Changes
-$(echo -e '${{ steps.analyze.outputs.important_files }}')
+          ### 🎯 Important Changes
+          $(echo -e '${{ steps.analyze.outputs.important_files }}')
 
-### 📝 Recent Commits
-${{ steps.analyze.outputs.commits }}
+          ### 📝 Recent Commits
+          ${{ steps.analyze.outputs.commits }}
 
-### 📁 Changed Files
-<details>
-<summary>Click to expand list of changed files</summary>
+          ### 📁 Changed Files
+          <details>
+          <summary>Click to expand list of changed files</summary>
 
-${{ steps.analyze.outputs.changed_files }}
+          ${{ steps.analyze.outputs.changed_files }}
 
-</details>
+          </details>
 
----
+          ---
 
-### 🐳 Docker Image
-A Docker image will be automatically built and published for this PR with tag \`pr-${NEW_PR_NUMBER}\`.
+          ### 🐳 Docker Image
+          A Docker image will be automatically built and published for this PR with tag \`pr-${NEW_PR_NUMBER}\`.
 
-You can find the exact command in the Docker workflow run or check the GitHub Container Registry.
+          You can find the exact command in the Docker workflow run or check the GitHub Container Registry.
 
-🤖 This PR was automatically created by GitHub Actions.
-📅 Created: ${CURRENT_DATE}
+          🤖 This PR was automatically created by GitHub Actions.
+          📅 Created: ${CURRENT_DATE}
 
-### 🔍 Review Checklist
-- [ ] Code changes reviewed
-- [ ] Tests pass
-- [ ] Documentation updated (if needed)
-- [ ] No breaking changes (or documented)
-- [ ] Docker image tested (if applicable)"
+          ### 🔍 Review Checklist
+          - [ ] Code changes reviewed
+          - [ ] Tests pass
+          - [ ] Documentation updated (if needed)
+          - [ ] No breaking changes (or documented)
+          - [ ] Docker image tested (if applicable)"
 
-                        gh pr edit $NEW_PR_NUMBER --body "$UPDATED_PR_BODY"
-                        echo "✅ PR created successfully!"
+              gh pr edit $NEW_PR_NUMBER --body "$UPDATED_PR_BODY"
+              echo "✅ PR created successfully!"
 
-                        # Add labels if any were determined
-                        if [ -n "${{ steps.labels.outputs.labels }}" ]; then
-                          echo "🏷️ Adding labels to PR #$NEW_PR_NUMBER..."
-                          IFS=',' read -ra LABEL_ARRAY <<< "${{ steps.labels.outputs.labels }}"
-                          for label in "${LABEL_ARRAY[@]}"; do
-                            if [ -n "$label" ]; then
-                              if gh pr edit $NEW_PR_NUMBER --add-label "$label" 2>/dev/null; then
-                                echo "✅ Added label: $label"
-                              else
-                                echo "⚠️ Could not add label: $label (may not exist)"
-                              fi
-                            fi
-                          done
-                        fi
-                      else
-                        # Handle the case where PR creation fails (e.g., already exists)
-                        echo "⚠️ Failed to create PR. Checking if it already exists..."
-
-                        # Double-check for existing PR
-                        EXISTING_PR=$(gh pr list --head ${{ github.ref_name }} --base main --json number,url --jq '.[0] // empty')
-                        if [ -n "$EXISTING_PR" ]; then
-                          PR_NUM=$(echo "$EXISTING_PR" | jq -r '.number')
-                          PR_URL=$(echo "$EXISTING_PR" | jq -r '.url')
-                          echo "✅ Found existing PR #$PR_NUM: $PR_URL"
-                          echo "🔄 Updating existing PR instead..."
-
-                          # Get current date for the body
-                          FALLBACK_DATE=$(date '+%Y-%m-%d %H:%M:%S UTC')
-
-                          # Create fallback PR body
-                          FALLBACK_PR_BODY="## 🔄 Auto-Generated Pull Request
-
-> **Branch:** \`${{ steps.analyze.outputs.branch_name }}\`
-> **Author:** ${{ steps.analyze.outputs.author }}
-> **Created by:** 🤖 GitHub Actions
-
-### 📊 Change Summary
-- **Files changed:** ${{ steps.analyze.outputs.files_changed }}
-- **Commits:** ${{ steps.analyze.outputs.commit_count }}
-- **Statistics:** ${{ steps.analyze.outputs.stats }}
-
-### 🎯 Important Changes
-$(echo -e '${{ steps.analyze.outputs.important_files }}')
-
-### 📝 Recent Commits
-${{ steps.analyze.outputs.commits }}
-
-### 📁 Changed Files
-<details>
-<summary>Click to expand list of changed files</summary>
-
-${{ steps.analyze.outputs.changed_files }}
-
-</details>
-
----
-
-### 🐳 Docker Image
-A Docker image will be automatically built and published for this PR with tag \`pr-${PR_NUM}\`.
-
-You can find the exact command in the Docker workflow run or check the GitHub Container Registry.
-
-🤖 This PR was automatically updated by GitHub Actions.
-📅 Last updated: ${FALLBACK_DATE}"
-
-                          # Update the existing PR
-                          gh pr edit $PR_NUM --body "$FALLBACK_PR_BODY"
-                          echo "✅ Existing PR updated successfully!"
-                        else
-                          echo "❌ Could not create or find PR. Manual intervention may be required."
-                          exit 1
-                        fi
-                      fi
+              # Add labels if any were determined
+              if [ -n "${{ steps.labels.outputs.labels }}" ]; then
+                echo "🏷️ Adding labels to PR #$NEW_PR_NUMBER..."
+                IFS=',' read -ra LABEL_ARRAY <<< "${{ steps.labels.outputs.labels }}"
+                for label in "${LABEL_ARRAY[@]}"; do
+                  if [ -n "$label" ]; then
+                    if gh pr edit $NEW_PR_NUMBER --add-label "$label" 2>/dev/null; then
+                      echo "✅ Added label: $label"
+                    else
+                      echo "⚠️ Could not add label: $label (may not exist)"
                     fi
+                  fi
+                done
+              fi
+            else
+              # Handle the case where PR creation fails (e.g., already exists)
+              echo "⚠️ Failed to create PR. Checking if it already exists..."
+
+              # Double-check for existing PR
+              EXISTING_PR=$(gh pr list --head ${{ github.ref_name }} --base main --json number,url --jq '.[0] // empty')
+              if [ -n "$EXISTING_PR" ]; then
+                PR_NUM=$(echo "$EXISTING_PR" | jq -r '.number')
+                PR_URL=$(echo "$EXISTING_PR" | jq -r '.url')
+                echo "✅ Found existing PR #$PR_NUM: $PR_URL"
+                echo "🔄 Updating existing PR instead..."
+
+                # Get current date for the body
+                FALLBACK_DATE=$(date '+%Y-%m-%d %H:%M:%S UTC')
+
+                # Create fallback PR body
+                FALLBACK_PR_BODY="## 🔄 Auto-Generated Pull Request
+
+          > **Branch:** \`${{ steps.analyze.outputs.branch_name }}\`
+          > **Author:** ${{ steps.analyze.outputs.author }}
+          > **Created by:** 🤖 GitHub Actions
+
+          ### 📊 Change Summary
+          - **Files changed:** ${{ steps.analyze.outputs.files_changed }}
+          - **Commits:** ${{ steps.analyze.outputs.commit_count }}
+          - **Statistics:** ${{ steps.analyze.outputs.stats }}
+
+          ### 🎯 Important Changes
+          $(echo -e '${{ steps.analyze.outputs.important_files }}')
+
+          ### 📝 Recent Commits
+          ${{ steps.analyze.outputs.commits }}
+
+          ### 📁 Changed Files
+          <details>
+          <summary>Click to expand list of changed files</summary>
+
+          ${{ steps.analyze.outputs.changed_files }}
+
+          </details>
+
+          ---
+
+          ### 🐳 Docker Image
+          A Docker image will be automatically built and published for this PR with tag \`pr-${PR_NUM}\`.
+
+          You can find the exact command in the Docker workflow run or check the GitHub Container Registry.
+
+          🤖 This PR was automatically updated by GitHub Actions.
+          📅 Last updated: ${FALLBACK_DATE}"
+
+                # Update the existing PR
+                gh pr edit $PR_NUM --body "$FALLBACK_PR_BODY"
+                echo "✅ Existing PR updated successfully!"
+              else
+                echo "❌ Could not create or find PR. Manual intervention may be required."
+                exit 1
+              fi
+            fi
+          fi
 
       - name: 📢 Summary
         run: |
