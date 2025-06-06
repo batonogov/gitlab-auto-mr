@@ -173,6 +173,14 @@ jobs:
 
           ---
 
+          ### 🐳 Docker Image
+          A Docker image will be automatically built and published for this PR with tag: \`pr-${{ github.event.number }}\`
+
+          You can test it using:
+          \`\`\`bash
+          docker pull ghcr.io/${{ github.actor }}/gitlab-auto-mr:pr-${{ github.event.number }}
+          \`\`\`
+
           🤖 This PR was automatically created and updated by GitHub Actions.
           📅 Last updated: $(date '+%Y-%m-%d %H:%M:%S UTC')
           EOF
@@ -210,6 +218,14 @@ jobs:
 
           ---
 
+          ### 🐳 Docker Image
+          A Docker image will be automatically built and published for this PR with tag: \`pr-${{ github.event.number }}\`
+
+          You can test it using:
+          \`\`\`bash
+          docker pull ghcr.io/${{ github.actor }}/gitlab-auto-mr:pr-${{ github.event.number }}
+          \`\`\`
+
           🤖 This PR was automatically created by GitHub Actions.
           📅 Created: $(date '+%Y-%m-%d %H:%M:%S UTC')
 
@@ -218,6 +234,7 @@ jobs:
           - [ ] Tests pass
           - [ ] Documentation updated (if needed)
           - [ ] No breaking changes (or documented)
+          - [ ] Docker image tested (if applicable)
           EOF
           )" \
               --base main \
