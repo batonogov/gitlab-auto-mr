@@ -1,0 +1,303 @@
+name: 🔄 Release Coordination
+
+# This workflow coordinates between Auto-PR and Release Please
+# to ensure smooth automated releases
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - closed
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: read
+
+jobs:
+  analyze-pr:
+    runs-on: ubuntu-latest
+    if: github.event.action != 'closed'
+    outputs:
+      is-conventional: ${{ steps.check.outputs.is-conventional }}
+      commit-type: ${{ steps.check.outputs.commit-type }}
+      release-impact: ${{ steps.check.outputs.release-impact }}
+      should-release: ${{ steps.check.outputs.should-release }}
+    steps:
+      - name: 📋 Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🔧 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: 🔍 Analyze PR for Release Impact
+        id: check
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "🔍 Analyzing PR #${{ github.event.number }} for release impact..."
+
+          # Try to get commits using git first, fallback to GitHub API
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+
+          echo "📍 Comparing $BASE_SHA..$HEAD_SHA"
+
+          # Ensure we have the main branch reference
+          git fetch origin main:main || echo "Main branch already available"
+
+          # Try git log first
+          if COMMITS=$(git log --oneline $BASE_SHA..$HEAD_SHA --pretty=format:"%s" 2>/dev/null) && [ -n "$COMMITS" ]; then
+            echo "✅ Using git log for commit analysis"
+          else
+            echo "⚠️ Git log failed, using GitHub API..."
+            # Fallback to GitHub API
+            COMMITS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+              "https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.number }}/commits" | \
+              jq -r '.[].commit.message | split("\n")[0]' 2>/dev/null || echo "")
+
+            if [ -z "$COMMITS" ]; then
+              echo "❌ Failed to get commits from both git and API"
+              echo "is-conventional=false" >> $GITHUB_OUTPUT
+              echo "commit-type=" >> $GITHUB_OUTPUT
+              echo "release-impact=none" >> $GITHUB_OUTPUT
+              echo "should-release=false" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+          fi
+
+          echo "📝 Commits in PR:"
+          echo "$COMMITS"
+
+          # Check for conventional commits
+          CONVENTIONAL_COMMITS=0
+          RELEASE_COMMITS=0
+          COMMIT_TYPES=""
+          BREAKING_CHANGES=false
+
+          # Process commits only if we have any
+          if [ -n "$COMMITS" ]; then
+            while IFS= read -r commit; do
+              # Skip empty lines
+              [ -z "$commit" ] && continue
+
+              if [[ "$commit" =~ ^(feat|fix|docs|style|refactor|perf|test|build|ci|chore)(\(.+\))?!?:\ .+ ]]; then
+                CONVENTIONAL_COMMITS=$((CONVENTIONAL_COMMITS + 1))
+
+                # Extract commit type
+                COMMIT_TYPE=$(echo "$commit" | sed -E 's/^([a-z]+)(\(.+\))?!?:.*$/\1/')
+                COMMIT_TYPES="$COMMIT_TYPES,$COMMIT_TYPE"
+
+                # Check if it affects releases
+                if [[ "$commit" =~ ^(feat|fix|perf) ]]; then
+                  RELEASE_COMMITS=$((RELEASE_COMMITS + 1))
+                fi
+
+                # Check for breaking changes
+                if [[ "$commit" =~ !: ]] || echo "$commit" | grep -q "BREAKING CHANGE"; then
+                  BREAKING_CHANGES=true
+                fi
+              fi
+            done <<< "$COMMITS"
+          fi
+
+          # Remove leading comma and get unique types
+          COMMIT_TYPES=$(echo "$COMMIT_TYPES" | sed 's/^,//' | tr ',' '\n' | sort -u | tr '\n' ',' | sed 's/,$//')
+
+          echo "📊 Analysis Results:"
+          echo "  Conventional commits: $CONVENTIONAL_COMMITS"
+          echo "  Release-affecting commits: $RELEASE_COMMITS"
+          echo "  Commit types: $COMMIT_TYPES"
+          echo "  Breaking changes: $BREAKING_CHANGES"
+
+          # Determine outputs
+          if [ $CONVENTIONAL_COMMITS -gt 0 ]; then
+            echo "is-conventional=true" >> $GITHUB_OUTPUT
+          else
+            echo "is-conventional=false" >> $GITHUB_OUTPUT
+          fi
+
+          echo "commit-type=$COMMIT_TYPES" >> $GITHUB_OUTPUT
+
+          # Determine release impact
+          if [ "$BREAKING_CHANGES" = true ]; then
+            IMPACT="major"
+          elif echo "$COMMIT_TYPES" | grep -q "feat"; then
+            IMPACT="minor"
+          elif echo "$COMMIT_TYPES" | grep -qE "(fix|perf)"; then
+            IMPACT="patch"
+          else
+            IMPACT="none"
+          fi
+
+          echo "release-impact=$IMPACT" >> $GITHUB_OUTPUT
+
+          if [ $RELEASE_COMMITS -gt 0 ]; then
+            echo "should-release=true" >> $GITHUB_OUTPUT
+          else
+            echo "should-release=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 💬 Add Release Preview Comment
+        if: steps.check.outputs.should-release == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            // Check if we already commented
+            const botComment = comments.find(comment =>
+              comment.user.login === 'github-actions[bot]' &&
+              comment.body.includes('🚀 Release Preview')
+            );
+
+            const impact = '${{ steps.check.outputs.release-impact }}';
+            const commitTypes = '${{ steps.check.outputs.commit-type }}';
+
+            let versionBump = '';
+            let emoji = '';
+            switch(impact) {
+              case 'major':
+                versionBump = 'MAJOR (breaking changes)';
+                emoji = '🔥';
+                break;
+              case 'minor':
+                versionBump = 'MINOR (new features)';
+                emoji = '✨';
+                break;
+              case 'patch':
+                versionBump = 'PATCH (bug fixes/improvements)';
+                emoji = '🔧';
+                break;
+              default:
+                versionBump = 'No version bump';
+                emoji = '📝';
+            }
+
+            const body = `## 🚀 Release Preview
+
+            ${emoji} **Impact:** This PR will trigger a **${versionBump}**
+
+            ### 📋 Details
+            - **Commit types:** \`${commitTypes}\`
+            - **Release impact:** \`${impact}\`
+            - **Conventional commits:** ✅ Yes
+
+            ### 🔄 What happens after merge:
+            1. **Release Please** will analyze the merged commits
+            2. A **Release PR** will be created with:
+               - Updated version number
+               - Generated CHANGELOG.md
+               - Release notes
+            3. After Release PR merge:
+               - Git tag will be created
+               - GitHub release will be published
+               - Docker images will be built and published
+               - Binaries will be built for all platforms
+
+            ---
+            *This comment is automatically updated by the Release Coordination workflow.*`;
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: body
+              });
+            }
+
+  post-merge:
+    runs-on: ubuntu-latest
+    if: github.event.action == 'closed' && github.event.pull_request.merged == true
+    steps:
+      - name: 📋 Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🎯 Trigger Release Please
+        run: |
+          echo "🎯 PR #${{ github.event.number }} merged to main"
+          echo "Release Please will automatically run via push trigger"
+          echo "Monitor: https://github.com/${{ github.repository }}/actions/workflows/release-please.yml"
+
+      - name: 📊 Post-Merge Analysis
+        run: |
+          echo "📊 Post-merge analysis:"
+          echo "  PR: #${{ github.event.number }}"
+          echo "  Title: ${{ github.event.pull_request.title }}"
+          echo "  Author: ${{ github.event.pull_request.user.login }}"
+          echo "  Commits: ${{ github.event.pull_request.commits }}"
+
+          # Check if merged commits are conventional
+          # Get commits from the merged PR
+          MERGE_BASE=$(git merge-base HEAD^ HEAD)
+          LAST_COMMITS=$(git log --oneline $MERGE_BASE..HEAD --pretty=format:"%s")
+          CONVENTIONAL_COUNT=0
+
+          if [ -n "$LAST_COMMITS" ]; then
+            while IFS= read -r commit; do
+              if [[ "$commit" =~ ^(feat|fix|docs|style|refactor|perf|test|build|ci|chore)(\(.+\))?!?:\ .+ ]]; then
+                CONVENTIONAL_COUNT=$((CONVENTIONAL_COUNT + 1))
+              fi
+            done <<< "$LAST_COMMITS"
+          fi
+
+          TOTAL_COMMITS=$(echo "$LAST_COMMITS" | wc -l)
+          echo "  Conventional commits: $CONVENTIONAL_COUNT/$TOTAL_COMMITS"
+
+          if [ $CONVENTIONAL_COUNT -gt 0 ]; then
+            echo "✅ Release Please will process these commits"
+          else
+            echo "ℹ️ No conventional commits found - no release will be triggered"
+          fi
+
+      - name: 🔗 Add Workflow Links Comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = `## ✅ Merged Successfully
+
+            Your changes have been merged to main! Here's what happens next:
+
+            ### 🔄 Automated Workflows
+            - 🚀 **Release Please**: [Monitor workflow](https://github.com/${{ github.repository }}/actions/workflows/release-please.yml)
+            - ⏰ **Scheduled Release**: [View schedule](https://github.com/${{ github.repository }}/actions/workflows/scheduled-release.yml)
+
+            ### 📋 Next Steps
+            ${${{ github.event.pull_request.commits }} > 0 ? '1. Release Please will analyze your commits\n2. If release-worthy changes detected, a Release PR will be created\n3. Review and merge the Release PR to publish the release' : '1. No conventional commits detected\n2. No automatic release will be triggered\n3. Consider using conventional commit format for future changes'}
+
+            ### 📚 Documentation
+            - [Conventional Commits Guide](https://github.com/${{ github.repository }}/blob/main/CONTRIBUTING.md#commit-message-convention)
+            - [Versioning Guide](https://github.com/${{ github.repository }}/blob/main/docs/VERSIONING.md)
+
+            ---
+            *Thank you for contributing! 🎉*`;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: body
+            });

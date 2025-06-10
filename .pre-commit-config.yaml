@@ -1,0 +1,85 @@
+repos:
+  - repo: local
+    hooks:
+      - id: go-deps
+        name: Verify Go dependencies
+        entry: task deps-verify
+        language: system
+        types: [go]
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: go-fmt
+        name: Format Go code
+        entry: task fmt
+        language: system
+        types: [go]
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: go-lint
+        name: Run Go linters
+        entry: task lint
+        language: system
+        types: [go]
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: go-test
+        name: Run Go tests
+        entry: task test
+        language: system
+        types: [go]
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: go-build
+        name: Verify Go build
+        entry: task build
+        language: system
+        types: [go]
+        pass_filenames: false
+        stages: [pre-push]
+
+      - id: taskfile-validation
+        name: Validate Taskfile syntax
+        entry: task --dry --list-all
+        language: system
+        files: ^Taskfile\.yml$
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: dockerfile-validation
+        name: Validate Dockerfile syntax
+        entry: sh -c 'if command -v hadolint >/dev/null 2>&1; then hadolint Dockerfile; else echo "Dockerfile syntax check skipped (hadolint not installed)"; fi'
+        language: system
+        files: ^Dockerfile$
+        pass_filenames: false
+        stages: [pre-commit]
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-added-large-files
+      - id: check-case-conflict
+      - id: check-merge-conflict
+      - id: check-vcs-permalinks
+      - id: check-yaml
+      - id: destroyed-symlinks
+      - id: detect-private-key
+      - id: end-of-file-fixer
+      - id: fix-byte-order-marker
+      - id: mixed-line-ending
+      - id: no-commit-to-branch
+      - id: trailing-whitespace
+
+  - repo: https://github.com/executablebooks/mdformat
+    rev: 0.7.22
+    hooks:
+      - id: mdformat
+        name: fix markdown formatting with mdformat
+        types: [markdown]
+        additional_dependencies:
+          - mdformat-gfm
+          - mdformat-toc
+          - mdformat-frontmatter
