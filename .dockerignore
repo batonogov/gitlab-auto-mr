@@ -35,7 +35,6 @@ VERSION
 # CI/CD files
 .github/
 .gitlab-ci.yml
-.gitlab-ci.yml.example
 
 # Test files
 main_test.go
