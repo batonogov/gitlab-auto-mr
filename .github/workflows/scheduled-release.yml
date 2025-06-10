@@ -1,0 +1,66 @@
+name: Scheduled Release
+
+on:
+  schedule:
+    - cron: '0 10 * * 1'  # Every Monday at 10:00 UTC
+  workflow_dispatch:  # Allow manual triggering
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  check-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check for changes since last release
+        id: changes
+        run: |
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -z "$LAST_TAG" ]; then
+            echo "No previous tags found, marking as having changes"
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          else
+            echo "Last tag: $LAST_TAG"
+            CHANGES=$(git rev-list $LAST_TAG..HEAD --count)
+            echo "Changes since last tag: $CHANGES"
+            if [ $CHANGES -gt 0 ]; then
+              echo "has_changes=true" >> $GITHUB_OUTPUT
+            else
+              echo "has_changes=false" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+      - name: Trigger Release Please
+        if: steps.changes.outputs.has_changes == 'true'
+        uses: googleapis/release-please-action@v4
+        with:
+          release-type: go
+          package-name: gitlab-auto-mr
+          token: ${{ secrets.GITHUB_TOKEN }}
+          include-component-in-tag: false
+          command: release-pr
+          changelog-types: |
+            [
+              {"type":"feat","section":"Features","hidden":false},
+              {"type":"fix","section":"Bug Fixes","hidden":false},
+              {"type":"docs","section":"Documentation","hidden":false},
+              {"type":"style","section":"Styling","hidden":true},
+              {"type":"refactor","section":"Code Refactoring","hidden":false},
+              {"type":"perf","section":"Performance Improvements","hidden":false},
+              {"type":"test","section":"Tests","hidden":true},
+              {"type":"build","section":"Build System","hidden":true},
+              {"type":"ci","section":"Continuous Integration","hidden":true},
+              {"type":"chore","section":"Miscellaneous","hidden":true}
+            ]
+
+      - name: No changes found
+        if: steps.changes.outputs.has_changes == 'false'
+        run: |
+          echo "No changes found since last release. Skipping release creation."

@@ -1,0 +1,64 @@
+name: PR Status Checks
+
+on:
+  pull_request:
+    branches: [ main ]
+    types: [opened, synchronize, reopened]
+
+jobs:
+  status-checks:
+    name: PR Status Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Verify dependencies
+        run: go mod verify
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Check formatting
+        run: |
+          if [ -n "$(go fmt ./...)" ]; then
+            echo "Code is not properly formatted"
+            exit 1
+          fi
+
+      - name: Run tests
+        run: go test -v -race ./...
+
+      - name: Build application
+        run: go build -v ./...
+
+  # Docker build test is now handled by the main docker-image.yml workflow
+  # which publishes PR images with tags like pr-123
+
+  pr-info:
+    name: PR Information
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: PR Info
+        run: |
+          echo "Pull Request #${{ github.event.number }}"
+          echo "Branch: ${{ github.head_ref }}"
+          echo "Base: ${{ github.base_ref }}"
+          echo "Author: ${{ github.event.pull_request.user.login }}"
+          echo "Title: ${{ github.event.pull_request.title }}"

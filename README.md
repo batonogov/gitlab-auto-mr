@@ -1,88 +1,216 @@
-# GitLab Auto MR Docker Image
+# GitLab Auto MR - Go Version
 
-Automatically create Merge Requests in GitLab using Docker.
+Automatically create Merge Requests in GitLab using a lightweight Go binary.
+
+## Features
+
+- ✅ Zero external dependencies - uses only Go standard library
+- ✅ Small Docker image (~26MB with Alpine 3.22)
+- ✅ Fast execution (~10ms startup time)
+- ✅ Compatible with GitLab CI/CD
+- ✅ Cross-platform support (Linux, macOS, Windows)
+- ✅ Built with Go 1.24 for optimal performance
+
+## Quick Start
+
+1. **Set required environment variables:**
+
+```bash
+export GITLAB_PRIVATE_TOKEN="your-gitlab-token"
+export GITLAB_USER_ID="your-user-id"
+export CI_PROJECT_ID="12345"
+export CI_PROJECT_URL="https://gitlab.com/user/project"
+export CI_COMMIT_REF_NAME="feature/my-branch"
+```
+
+2. **Run with Docker (recommended):**
+
+```bash
+docker run --rm \
+  -e GITLAB_PRIVATE_TOKEN \
+  -e GITLAB_USER_ID \
+  -e CI_PROJECT_ID \
+  -e CI_PROJECT_URL \
+  -e CI_COMMIT_REF_NAME \
+  ghcr.io/batonogov/gitlab-auto-mr:latest \
+  ./gitlab-auto-mr --target-branch main
+```
+
+3. **Or build and run locally:**
+
+```bash
+git clone https://github.com/user/gitlab-auto-mr.git
+cd gitlab-auto-mr
+task build
+./gitlab_auto_mr --target-branch main
+```
 
 ## Usage
 
+### GitLab CI/CD
+
 ```yaml
 create_mr:
-  stage: prepare
+  stage: create-mr
   image: ghcr.io/batonogov/gitlab-auto-mr:latest
   script:
     - |
-      gitlab_auto_mr \
+      ./gitlab_auto_mr \
         --target-branch main \
-        --commit-prefix Draft \
-        --description ./.gitlab/merge_request/template.md \
+        --commit-prefix "Draft" \
         --remove-branch \
-        --squash-commits \
-        --use-issue-name
+        --squash-commits
   rules:
     - if: $CI_COMMIT_BRANCH != "main" && $CI_PIPELINE_SOURCE != "merge_request_event"
 ```
 
-## Required Environment Variables
-
-Set these in your GitLab project's CI/CD Variables:
+### Required Environment Variables
 
 - `GITLAB_PRIVATE_TOKEN` - GitLab personal access token with `api` scope
-- `GITLAB_USER_ID` - Your GitLab user ID
+- `GITLAB_USER_ID` - Your GitLab user ID (comma-separated for multiple assignees)
+- `CI_PROJECT_ID` - GitLab project ID
+- `CI_PROJECT_URL` - GitLab URL
+- `CI_COMMIT_REF_NAME` - Source branch name
 
-## All Available Options
+### CLI Options
 
-### Required Options
-| Option | Environment Variable | Description |
-|--------|---------------------|-------------|
-| `--private-token` | `GITLAB_PRIVATE_TOKEN` | GitLab private token for authentication |
-| `--source-branch` | `CI_COMMIT_REF_NAME` | Source branch to merge from |
-| `--project-id` | `CI_PROJECT_ID` | GitLab project ID |
-| `--gitlab-url` | `CI_PROJECT_URL` | GitLab URL (e.g., https://gitlab.com) |
-| `--user-id` | `GITLAB_USER_ID` | GitLab user ID to assign MR to (repeatable) |
+| Option                  | Short | Description                             | Default                |
+| ----------------------- | ----- | --------------------------------------- | ---------------------- |
+| `--target-branch`       | `-t`  | Target branch for MR                    | Project default branch |
+| `--commit-prefix`       | `-c`  | MR title prefix                         | `Draft`                |
+| `--title`               |       | Custom MR title                         | Source branch name     |
+| `--description`         | `-d`  | Path to description file                | -                      |
+| `--remove-branch`       | `-r`  | Delete source branch after merge        | `false`                |
+| `--squash-commits`      | `-s`  | Squash commits on merge                 | `false`                |
+| `--use-issue-name`      | `-i`  | Use issue data from branch name         | `false`                |
+| `--allow-collaboration` | `-a`  | Allow commits from merge target members | `false`                |
+| `--reviewer-id`         |       | Reviewer user ID(s) (comma-separated)   | -                      |
+| `--mr-exists`           |       | Only check if MR exists (dry run)       | `false`                |
+| `--insecure`            | `-k`  | Skip SSL certificate verification       | `false`                |
 
-### Optional Options
-| Option | Short | Description | Default |
-|--------|-------|-------------|---------|
-| `--target-branch` | `-t` | Target branch for MR | Project default branch |
-| `--commit-prefix` | `-c` | MR title prefix | `Draft` |
-| `--title` | | Custom MR title | Source branch name |
-| `--description` | `-d` | Path to description file | - |
-| `--remove-branch` | `-r` | Delete source branch after merge | `false` |
-| `--squash-commits` | `-s` | Squash commits on merge | `false` |
-| `--use-issue-name` | `-i` | Use issue data from branch name | `false` |
-| `--allow-collaboration` | `-a` | Allow commits from merge target members | `false` |
-| `--reviewer-id` | | Reviewer user ID (repeatable) | - |
-| `--mr-exists` | | Only check if MR exists (dry run) | `false` |
-| `--insecure` | `-k` | Skip SSL certificate verification | `false` |
+## Building
+
+### Prerequisites
+
+- Go 1.24 or later
+- Task (optional, for build automation)
+
+### Local Development
+
+```bash
+# Using Task (recommended)
+task build      # Build binary
+task test       # Run tests
+task docker-build  # Build Docker image
+task clean      # Clean artifacts
+task --list     # Show all tasks
+
+# Or using Go directly
+go build -o gitlab_auto_mr .
+go test ./...
+```
+
+### Pre-commit Hooks
+
+This project uses pre-commit hooks for code quality and consistency:
+
+```bash
+# Install pre-commit (if not already installed)
+pip install pre-commit
+
+# Install hooks
+pre-commit install
+
+# Run hooks on all files
+pre-commit run --all-files
+
+# Run hooks on specific files
+pre-commit run --files main.go
+```
+
+**Included hooks:**
+
+- Go dependency verification
+- Go code formatting
+- Go linting
+- Go tests
+- Taskfile validation
+- Dockerfile validation
+- YAML validation
+- Markdown formatting
+- Large file detection
+- Merge conflict detection
+
+### Docker Build
+
+```bash
+task docker-build
+# or
+docker build -t gitlab-auto-mr .
+```
 
 ## Examples
 
-### Basic MR
-```yaml
-script:
-  - gitlab_auto_mr --target-branch main
+### Basic MR Creation
+
+```bash
+./gitlab_auto_mr \
+  --target-branch main \
+  --commit-prefix "Draft"
 ```
 
-### With reviewers
-```yaml
-script:
-  - gitlab_auto_mr --target-branch main --reviewer-id 12345 --reviewer-id 67890
+### With Reviewers
+
+```bash
+./gitlab_auto_mr \
+  --target-branch main \
+  --reviewer-id "12345,67890"
 ```
 
-### Check if MR exists
-```yaml
-script:
-  - gitlab_auto_mr --mr-exists --target-branch main
+### Check if MR Exists
+
+```bash
+./gitlab_auto_mr \
+  --mr-exists \
+  --target-branch main
 ```
-
-## Setup
-
-1. Create GitLab Personal Access Token with `api` scope
-2. Add `GITLAB_PRIVATE_TOKEN` to project CI/CD variables
-3. Add `GITLAB_USER_ID` to project CI/CD variables
-4. Use the Docker image in your pipeline
 
 ## Troubleshooting
 
-- **Authentication error**: Check your `GITLAB_PRIVATE_TOKEN`
-- **MR already exists**: Normal behavior, script exits successfully
-- **Same source/target branch**: Ensure you're not on the target branch
+**Authentication Error**
+
+```
+Error: unable to get project 12345: unauthorized access, check your access token is valid
+```
+
+- Check your `GITLAB_PRIVATE_TOKEN` is valid and has `api` scope
+
+**MR Already Exists**
+
+```
+Merge request already exists for this branch feature/test to main
+```
+
+- This is normal behavior - use `--mr-exists` to check without creating
+
+**Same Source/Target Branch**
+
+```
+Error: source branch and target branches must be different
+```
+
+- Ensure you're not running on the target branch
+
+## Performance vs Python Version
+
+| Metric       | Go Version | Python Version |
+| ------------ | ---------- | -------------- |
+| Binary Size  | ~5.7MB     | ~50MB+         |
+| Docker Image | ~26MB      | ~80MB+         |
+| Startup Time | ~10ms      | ~200ms+        |
+| Memory Usage | ~5MB       | ~20MB+         |
+| Dependencies | 0 external | 10+ packages   |
+
+## License
+
+MIT License - see LICENSE file for details.

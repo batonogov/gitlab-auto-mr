@@ -1,4 +1,33 @@
-FROM python:3.13-alpine
+FROM golang:1.24-alpine3.22 AS builder
 
-RUN pip install --no-cache \
-    gitlab-auto-mr==1.2.0
+WORKDIR /app
+
+# Copy go mod files
+COPY go.mod go.sum* ./
+
+# Download dependencies
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build the application
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o gitlab_auto_mr .
+
+# Final stage
+FROM alpine:3.22
+
+RUN apk --no-cache add ca-certificates
+
+WORKDIR /app
+
+# Copy the binary from builder stage
+COPY --from=builder /app/gitlab_auto_mr .
+
+# Make it executable
+RUN chmod +x ./gitlab_auto_mr
+
+# Add to PATH
+ENV PATH="/app:${PATH}"
+
+CMD ["./gitlab_auto_mr"]

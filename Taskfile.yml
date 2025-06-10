@@ -1,0 +1,127 @@
+version: '3'
+
+vars:
+  BINARY_NAME: gitlab_auto_mr
+  VERSION: '{{.VERSION | default "latest"}}'
+  DOCKER_IMAGE: gitlab-auto-mr
+
+tasks:
+  default:
+    desc: Show available tasks
+    cmd: task --list
+
+  build:
+    desc: Build the binary
+    cmd: go build -o {{.BINARY_NAME}} -ldflags="-s -w" .
+    sources:
+      - "*.go"
+      - go.mod
+      - go.sum
+    generates:
+      - "{{.BINARY_NAME}}"
+
+  build-all:
+    desc: Build for multiple platforms
+    cmds:
+      - GOOS=linux GOARCH=amd64 go build -o {{.BINARY_NAME}}-linux-amd64 -ldflags="-s -w" .
+      - GOOS=linux GOARCH=arm64 go build -o {{.BINARY_NAME}}-linux-arm64 -ldflags="-s -w" .
+      - GOOS=darwin GOARCH=amd64 go build -o {{.BINARY_NAME}}-darwin-amd64 -ldflags="-s -w" .
+      - GOOS=darwin GOARCH=arm64 go build -o {{.BINARY_NAME}}-darwin-arm64 -ldflags="-s -w" .
+      - GOOS=windows GOARCH=amd64 go build -o {{.BINARY_NAME}}-windows-amd64.exe -ldflags="-s -w" .
+
+  test:
+    desc: Run tests
+    cmd: go test -v ./...
+
+  test-coverage:
+    desc: Run tests with coverage
+    cmds:
+      - go test -v -coverprofile=coverage.out ./...
+      - go tool cover -html=coverage.out -o coverage.html
+
+  clean:
+    desc: Clean build artifacts
+    cmds:
+      - rm -f {{.BINARY_NAME}}
+      - rm -f {{.BINARY_NAME}}-*
+      - rm -f coverage.out coverage.html
+      - rm -rf dist/
+
+  run:
+    desc: Run with help
+    cmd: go run . --help
+
+  run-example:
+    desc: Run with example parameters (dry run)
+    cmd: |
+      go run . \
+        --private-token "example-token" \
+        --source-branch "feature/example" \
+        --project-id 12345 \
+        --gitlab-url "https://gitlab.com" \
+        --user-id "67890" \
+        --target-branch main \
+        --mr-exists
+
+  docker-build:
+    desc: Build Docker image
+    cmds:
+      - docker build -t {{.DOCKER_IMAGE}}:{{.VERSION}} .
+      - docker tag {{.DOCKER_IMAGE}}:{{.VERSION}} {{.DOCKER_IMAGE}}:latest
+
+  docker-run:
+    desc: Run Docker container
+    cmd: docker run --rm {{.DOCKER_IMAGE}}:latest ./{{.BINARY_NAME}} --help
+    deps: [docker-build]
+
+  fmt:
+    desc: Format code
+    cmd: go fmt ./...
+
+  lint:
+    desc: Run linter
+    cmd: go vet ./...
+
+  deps:
+    desc: Download dependencies
+    cmds:
+      - go mod download
+      - go mod tidy
+
+  deps-verify:
+    desc: Verify dependencies are up to date
+    cmds:
+      - go mod verify
+      - go mod tidy -diff
+
+  install:
+    desc: Install binary to GOPATH/bin
+    cmd: cp {{.BINARY_NAME}} $(go env GOPATH)/bin/
+    deps: [build]
+
+  release:
+    desc: Create release archives
+    cmds:
+      - task: build-all
+      - mkdir -p dist
+      - tar -czf dist/{{.BINARY_NAME}}-linux-amd64.tar.gz {{.BINARY_NAME}}-linux-amd64
+      - tar -czf dist/{{.BINARY_NAME}}-linux-arm64.tar.gz {{.BINARY_NAME}}-linux-arm64
+      - tar -czf dist/{{.BINARY_NAME}}-darwin-amd64.tar.gz {{.BINARY_NAME}}-darwin-amd64
+      - tar -czf dist/{{.BINARY_NAME}}-darwin-arm64.tar.gz {{.BINARY_NAME}}-darwin-arm64
+      - zip -q dist/{{.BINARY_NAME}}-windows-amd64.zip {{.BINARY_NAME}}-windows-amd64.exe
+
+  ci:
+    desc: Run CI pipeline locally
+    cmds:
+      - task: deps
+      - task: fmt
+      - task: lint
+      - task: test
+      - task: build
+
+  all:
+    desc: Build everything
+    cmds:
+      - task: clean
+      - task: ci
+      - task: docker-build
