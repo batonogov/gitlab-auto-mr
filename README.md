@@ -45,7 +45,26 @@ task build
 ./gitlab_auto_mr --target-branch main
 ```
 
-## Required Environment Variables
+## Usage
+
+### GitLab CI/CD
+
+```yaml
+create_mr:
+  stage: create-mr
+  image: ghcr.io/batonogov/gitlab-auto-mr:latest
+  script:
+    - |
+      ./gitlab_auto_mr \
+        --target-branch main \
+        --commit-prefix "Draft" \
+        --remove-branch \
+        --squash-commits
+  rules:
+    - if: $CI_COMMIT_BRANCH != "main" && $CI_PIPELINE_SOURCE != "merge_request_event"
+```
+
+### Required Environment Variables
 
 - `GITLAB_PRIVATE_TOKEN` - GitLab personal access token with `api` scope
 - `GITLAB_USER_ID` - Your GitLab user ID (comma-separated for multiple assignees)
