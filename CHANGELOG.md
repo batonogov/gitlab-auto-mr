@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0](https://github.com/batonogov/gitlab-auto-mr/compare/v1.3.0...v1.4.0) (2025-06-10)
+
+
+### Features
+
+* add tag validation to release workflow ([394a81c](https://github.com/batonogov/gitlab-auto-mr/commit/394a81cc4cc09b1078c731e27620b654b48306c2))
+
 ## [1.3.0](https://github.com/batonogov/gitlab-auto-mr/compare/v1.2.0...v1.3.0) (2025-06-10)
 
 
