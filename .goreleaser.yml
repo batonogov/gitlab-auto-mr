@@ -60,8 +60,8 @@ changelog:
 
 release:
   github:
-    owner: "{{ .Env.GITHUB_REPOSITORY_OWNER }}"
-    name: "{{ .ProjectName }}"
+    owner: batonogov
+    name: gitlab-auto-mr
   name_template: "{{ .ProjectName }} {{ .Tag }}"
   draft: false
   prerelease: auto
