@@ -8,6 +8,7 @@ gitlab_auto_mr-*
 dist/
 coverage.out
 coverage.html
+.task/
 
 # Development files
 .venv/

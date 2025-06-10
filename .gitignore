@@ -15,6 +15,7 @@ coverage.html
 
 # Build artifacts
 dist/
+.task/
 
 # Go workspace
 go.work
