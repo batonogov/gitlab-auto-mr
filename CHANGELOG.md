@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.1](https://github.com/batonogov/gitlab-auto-mr/compare/v1.4.0...v1.4.1) (2025-06-10)
+
+
+### Bug Fixes
+
+* resolve release workflow issues ([8fa43ea](https://github.com/batonogov/gitlab-auto-mr/commit/8fa43eaa518f18c4d3581feab8ee096ceb8fab1f))
+
 ## [1.4.0](https://github.com/batonogov/gitlab-auto-mr/compare/v1.3.0...v1.4.0) (2025-06-10)
 
 
