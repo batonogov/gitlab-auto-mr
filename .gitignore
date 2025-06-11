@@ -30,6 +30,15 @@ go.work
 .DS_Store
 Thumbs.db
 
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Docker Compose local files
+docker-compose.yml
+docker-compose.override.yml
+
 # Python legacy (can be removed when fully migrated)
 .venv/
 __pycache__/

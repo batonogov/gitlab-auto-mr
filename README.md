@@ -11,6 +11,32 @@ Automatically create Merge Requests in GitLab using a lightweight Go binary.
 - ✅ Cross-platform support (Linux, macOS, Windows)
 - ✅ Built with Go 1.24 for optimal performance
 
+## Docker Images
+
+Docker images are automatically built and published to GitHub Container Registry for each release.
+
+### Available Tags
+
+- `latest` - Latest stable release
+- `v1.2.3` - Specific version
+- `v1.2` - Latest patch version of v1.2
+- `v1` - Latest minor and patch version of v1
+
+### Pull the Image
+
+```bash
+# Latest release
+docker pull ghcr.io/batonogov/gitlab-auto-mr:latest
+
+# Specific version
+docker pull ghcr.io/batonogov/gitlab-auto-mr:v1.2.3
+```
+
+### Supported Platforms
+
+- `linux/amd64`
+- `linux/arm64`
+
 ## Quick Start
 
 1. **Set required environment variables:**
@@ -33,7 +59,7 @@ docker run --rm \
   -e CI_PROJECT_URL \
   -e CI_COMMIT_REF_NAME \
   ghcr.io/batonogov/gitlab-auto-mr:latest \
-  ./gitlab-auto-mr --target-branch main
+  gitlab_auto_mr --target-branch main
 ```
 
 3. **Or build and run locally:**
@@ -55,7 +81,7 @@ create_mr:
   image: ghcr.io/batonogov/gitlab-auto-mr:latest
   script:
     - |
-      ./gitlab_auto_mr \
+      gitlab_auto_mr \
         --target-branch main \
         --commit-prefix "Draft" \
         --remove-branch \
