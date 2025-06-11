@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.5.0](https://github.com/batonogov/gitlab-auto-mr/compare/v1.4.2...v1.5.0) (2025-06-11)
+
+
+### Features
+
+* add tag validation to release workflow ([394a81c](https://github.com/batonogov/gitlab-auto-mr/commit/394a81cc4cc09b1078c731e27620b654b48306c2))
+
+
+### Bug Fixes
+
+* add packages write permission to docker job in release workflow ([1130d2b](https://github.com/batonogov/gitlab-auto-mr/commit/1130d2b3ff50620e391dcd46916c6b15f0f9eaa3))
+* add packages write permission to docker job in release workflow ([10790ca](https://github.com/batonogov/gitlab-auto-mr/commit/10790ca52a5d29cc71819c3bc49eaa5a8740d5ac))
+* resolve release workflow issues ([8fa43ea](https://github.com/batonogov/gitlab-auto-mr/commit/8fa43eaa518f18c4d3581feab8ee096ceb8fab1f))
+* resolve release-please permissions and configuration issues ([771f3fc](https://github.com/batonogov/gitlab-auto-mr/commit/771f3fc2f13eb1181d0230b6ed1a28013833316d))
+* resolve release-please permissions and configuration issues ([7e9d06f](https://github.com/batonogov/gitlab-auto-mr/commit/7e9d06f58ea4562b7bbc19eb106e286c7d644d01))
+* автоматическая сборка бинарников и Docker образов при релизе ([a9ad0d1](https://github.com/batonogov/gitlab-auto-mr/commit/a9ad0d1714251230685d1c55a42ca5cf7dbb88f7))
+
 ## [1.4.2](https://github.com/batonogov/gitlab-auto-mr/compare/v1.4.1...v1.4.2) (2025-06-11)
 
 
