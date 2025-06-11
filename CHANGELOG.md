@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.1](https://github.com/batonogov/gitlab-auto-mr/compare/v1.6.0...v1.6.1) (2025-06-11)
+
+
+### Documentation
+
+* update version examples to use existing version 1.6.0 ([#24](https://github.com/batonogov/gitlab-auto-mr/issues/24)) ([cfa86a6](https://github.com/batonogov/gitlab-auto-mr/commit/cfa86a6de5505af7897fc84cefdaf1e1dfc55c21))
+
 ## [1.6.0](https://github.com/batonogov/gitlab-auto-mr/compare/v1.5.0...v1.6.0) (2025-06-11)
 
 
