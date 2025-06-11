@@ -18,9 +18,9 @@ Docker images are automatically built and published to GitHub Container Registry
 ### Available Tags
 
 - `latest` - Latest stable release
-- `v1.2.3` - Specific version
-- `v1.2` - Latest patch version of v1.2
-- `v1` - Latest minor and patch version of v1
+- `vX.Y.Z` - Specific version (e.g., `v1.6.0`)
+- `vX.Y` - Latest patch version of a minor release (e.g., `v1.6`)
+- `vX` - Latest minor and patch version of a major release (e.g., `v1`)
 
 ### Pull the Image
 
@@ -29,7 +29,7 @@ Docker images are automatically built and published to GitHub Container Registry
 docker pull ghcr.io/batonogov/gitlab-auto-mr:latest
 
 # Specific version
-docker pull ghcr.io/batonogov/gitlab-auto-mr:v1.2.3
+docker pull ghcr.io/batonogov/gitlab-auto-mr:v1.6.0
 ```
 
 ### Supported Platforms
