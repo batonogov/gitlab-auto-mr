@@ -10,7 +10,7 @@ permissions:
   pull-requests: write
 
 jobs:
-  check-and-release:
+  check-and-trigger:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -37,28 +37,18 @@ jobs:
             fi
           fi
 
-      - name: Trigger Release Please
+      - name: Trigger Release Please workflow
         if: steps.changes.outputs.has_changes == 'true'
-        uses: googleapis/release-please-action@v4
+        uses: actions/github-script@v7
         with:
-          release-type: go
-          package-name: gitlab-auto-mr
-          token: ${{ secrets.GITHUB_TOKEN }}
-          include-component-in-tag: false
-          command: release-pr
-          changelog-types: |
-            [
-              {"type":"feat","section":"Features","hidden":false},
-              {"type":"fix","section":"Bug Fixes","hidden":false},
-              {"type":"docs","section":"Documentation","hidden":false},
-              {"type":"style","section":"Styling","hidden":true},
-              {"type":"refactor","section":"Code Refactoring","hidden":false},
-              {"type":"perf","section":"Performance Improvements","hidden":false},
-              {"type":"test","section":"Tests","hidden":true},
-              {"type":"build","section":"Build System","hidden":true},
-              {"type":"ci","section":"Continuous Integration","hidden":true},
-              {"type":"chore","section":"Miscellaneous","hidden":true}
-            ]
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'release-please.yml',
+              ref: 'main'
+            });
+            console.log('✅ Triggered Release Please workflow');
 
       - name: No changes found
         if: steps.changes.outputs.has_changes == 'false'
