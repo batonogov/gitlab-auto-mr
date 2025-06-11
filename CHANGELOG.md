@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.6.0](https://github.com/batonogov/gitlab-auto-mr/compare/v1.5.0...v1.6.0) (2025-06-11)
+
+
+### Features
+
+* add Docker image information to releases ([34c19f7](https://github.com/batonogov/gitlab-auto-mr/commit/34c19f72280325982825973ad22a3cfb64bb2b9d))
+* add Docker image information to releases ([a2c1cb0](https://github.com/batonogov/gitlab-auto-mr/commit/a2c1cb0ccdd76abb7d99fcaa5fb6cd3114d55df7))
+
 ## [1.5.0](https://github.com/batonogov/gitlab-auto-mr/compare/v1.4.2...v1.5.0) (2025-06-11)
 
 
