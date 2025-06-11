@@ -66,3 +66,25 @@ release:
   draft: false
   prerelease: auto
   make_latest: auto
+  footer: |
+    ## Docker Images
+
+    This release is available as a Docker image:
+
+    ```bash
+    # Latest release
+    docker pull ghcr.io/batonogov/gitlab-auto-mr:latest
+
+    # Specific version
+    docker pull ghcr.io/batonogov/gitlab-auto-mr:{{ .Tag }}
+
+    # Major version
+    docker pull ghcr.io/batonogov/gitlab-auto-mr:{{ .Major }}
+
+    # Major.Minor version
+    docker pull ghcr.io/batonogov/gitlab-auto-mr:{{ .Major }}.{{ .Minor }}
+    ```
+
+    ### Supported platforms
+    - `linux/amd64`
+    - `linux/arm64`
