@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.2](https://github.com/batonogov/gitlab-auto-mr/compare/v1.4.1...v1.4.2) (2025-06-11)
+
+
+### Bug Fixes
+
+* автоматическая сборка бинарников и Docker образов при релизе ([a9ad0d1](https://github.com/batonogov/gitlab-auto-mr/commit/a9ad0d1714251230685d1c55a42ca5cf7dbb88f7))
+
 ## [1.4.1](https://github.com/batonogov/gitlab-auto-mr/compare/v1.4.0...v1.4.1) (2025-06-10)
 
 
