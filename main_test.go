@@ -197,3 +197,53 @@ func TestConfigUpdateMRFlag(t *testing.T) {
 		t.Errorf("Expected UpdateMR to be false, got %v", config.UpdateMR)
 	}
 }
+
+func TestConfigCreateOnlyFlag(t *testing.T) {
+	// Test that Config struct has CreateOnly field
+	config := Config{
+		CreateOnly: true,
+	}
+
+	if config.CreateOnly != true {
+		t.Errorf("Expected CreateOnly to be true, got %v", config.CreateOnly)
+	}
+
+	config.CreateOnly = false
+	if config.CreateOnly != false {
+		t.Errorf("Expected CreateOnly to be false, got %v", config.CreateOnly)
+	}
+}
+
+func TestSmartMRManagement(t *testing.T) {
+	// Test smart MR management behavior
+	tests := []struct {
+		name       string
+		updateMR   bool
+		createOnly bool
+		expected   string
+	}{
+		{"Default smart mode", false, false, "smart"},
+		{"Force update mode", true, false, "update"},
+		{"Force create mode", false, true, "create"},
+	}
+
+	for _, test := range tests {
+		config := Config{
+			UpdateMR:   test.updateMR,
+			CreateOnly: test.createOnly,
+		}
+
+		var mode string
+		if config.UpdateMR {
+			mode = "update"
+		} else if config.CreateOnly {
+			mode = "create"
+		} else {
+			mode = "smart"
+		}
+
+		if mode != test.expected {
+			t.Errorf("%s: expected '%s', got '%s'", test.name, test.expected, mode)
+		}
+	}
+}

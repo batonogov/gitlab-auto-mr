@@ -33,6 +33,7 @@ type Config struct {
 	AllowCollaboration bool
 	MRExists           bool
 	UpdateMR           bool
+	CreateOnly         bool
 }
 
 type Project struct {
@@ -125,6 +126,7 @@ func parseFlags() *Config {
 	flag.BoolVar(&config.AllowCollaboration, "a", false, "Allow collaboration (short)")
 	flag.BoolVar(&config.MRExists, "mr-exists", false, "Check if MR exists (dry run)")
 	flag.BoolVar(&config.UpdateMR, "update-mr", false, "Update existing MR instead of creating new one")
+	flag.BoolVar(&config.CreateOnly, "create-only", false, "Only create new MR, fail if MR already exists")
 
 	flag.Parse()
 
@@ -203,17 +205,23 @@ func run(config *Config) error {
 		return nil
 	}
 
-	if existingMR != nil && !config.UpdateMR {
-		fmt.Printf("Merge request already exists for this branch %s to %s, no new merge request opened.\n",
+	// Handle create-only mode
+	if config.CreateOnly && existingMR != nil {
+		return fmt.Errorf("merge request already exists for this branch %s to %s, cannot create new MR in create-only mode",
 			config.SourceBranch, config.TargetBranch)
-		fmt.Printf("Use --update-mr flag to update the existing MR instead.\n")
-		return nil
+	}
+
+	// Handle update-only mode
+	if config.UpdateMR && existingMR == nil {
+		return fmt.Errorf("merge request does not exist for this branch %s to %s, cannot update non-existent MR",
+			config.SourceBranch, config.TargetBranch)
 	}
 
 	title := getMRTitle(config.CommitPrefix, config.Title, config.SourceBranch)
 	description := getDescriptionData(config.Description)
 
-	if existingMR != nil && config.UpdateMR {
+	// Smart MR management: update existing MR if it exists, otherwise create new one
+	if existingMR != nil {
 		// Update existing MR
 		updateRequest := &MRUpdateRequest{
 			Title:              title,
