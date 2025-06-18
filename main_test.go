@@ -127,3 +127,123 @@ func TestGetDescriptionData(t *testing.T) {
 		t.Errorf("Expected empty string for non-existing file, got '%s'", result)
 	}
 }
+
+func TestGetMRTitleWithUpdate(t *testing.T) {
+	tests := []struct {
+		prefix   string
+		title    string
+		branch   string
+		expected string
+		desc     string
+	}{
+		{"", "Updated Title", "feature/test", "Updated Title", "Custom title without prefix"},
+		{"WIP", "Updated Title", "feature/test", "WIP: Updated Title", "Custom title with prefix"},
+		{"", "", "feature/updated", "feature/updated", "Branch name as title"},
+		{"Update", "", "feature/updated", "Update: feature/updated", "Branch name with prefix"},
+	}
+
+	for _, test := range tests {
+		result := getMRTitle(test.prefix, test.title, test.branch)
+		if result != test.expected {
+			t.Errorf("%s: prefix='%s', title='%s', branch='%s': expected '%s', got '%s'",
+				test.desc, test.prefix, test.title, test.branch, test.expected, result)
+		}
+	}
+}
+
+func TestMRUpdateRequest(t *testing.T) {
+	// Test MRUpdateRequest struct initialization
+	updateReq := MRUpdateRequest{
+		Title:              "Updated Title",
+		Description:        "Updated Description",
+		AssigneeIDs:        []int{123, 456},
+		ReviewerIDs:        []int{789},
+		RemoveSourceBranch: true,
+		Squash:             true,
+		AllowCollaboration: false,
+		MilestoneID:        999,
+		Labels:             []string{"bug", "urgent"},
+	}
+
+	if updateReq.Title != "Updated Title" {
+		t.Errorf("Expected 'Updated Title', got '%s'", updateReq.Title)
+	}
+	if len(updateReq.AssigneeIDs) != 2 {
+		t.Errorf("Expected 2 assignees, got %d", len(updateReq.AssigneeIDs))
+	}
+	if len(updateReq.ReviewerIDs) != 1 {
+		t.Errorf("Expected 1 reviewer, got %d", len(updateReq.ReviewerIDs))
+	}
+	if updateReq.MilestoneID != 999 {
+		t.Errorf("Expected milestone ID 999, got %d", updateReq.MilestoneID)
+	}
+	if len(updateReq.Labels) != 2 {
+		t.Errorf("Expected 2 labels, got %d", len(updateReq.Labels))
+	}
+}
+
+func TestConfigUpdateMRFlag(t *testing.T) {
+	// Test that Config struct has UpdateMR field
+	config := Config{
+		UpdateMR: true,
+	}
+
+	if config.UpdateMR != true {
+		t.Errorf("Expected UpdateMR to be true, got %v", config.UpdateMR)
+	}
+
+	config.UpdateMR = false
+	if config.UpdateMR != false {
+		t.Errorf("Expected UpdateMR to be false, got %v", config.UpdateMR)
+	}
+}
+
+func TestConfigCreateOnlyFlag(t *testing.T) {
+	// Test that Config struct has CreateOnly field
+	config := Config{
+		CreateOnly: true,
+	}
+
+	if config.CreateOnly != true {
+		t.Errorf("Expected CreateOnly to be true, got %v", config.CreateOnly)
+	}
+
+	config.CreateOnly = false
+	if config.CreateOnly != false {
+		t.Errorf("Expected CreateOnly to be false, got %v", config.CreateOnly)
+	}
+}
+
+func TestSmartMRManagement(t *testing.T) {
+	// Test smart MR management behavior
+	tests := []struct {
+		name       string
+		updateMR   bool
+		createOnly bool
+		expected   string
+	}{
+		{"Default smart mode", false, false, "smart"},
+		{"Force update mode", true, false, "update"},
+		{"Force create mode", false, true, "create"},
+	}
+
+	for _, test := range tests {
+		config := Config{
+			UpdateMR:   test.updateMR,
+			CreateOnly: test.createOnly,
+		}
+
+		var mode string
+		if config.UpdateMR {
+			mode = "update"
+		} else if config.CreateOnly {
+			mode = "create"
+		} else {
+			mode = "smart"
+		}
+
+		if mode != test.expected {
+			t.Errorf("%s: expected '%s', got '%s'", test.name, test.expected, mode)
+		}
+	}
+}

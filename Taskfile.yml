@@ -1,4 +1,4 @@
-version: '3'
+version: "3"
 
 vars:
   BINARY_NAME: gitlab_auto_mr
@@ -63,6 +63,48 @@ tasks:
         --target-branch main \
         --mr-exists
 
+  run-smart:
+    desc: Run with smart MR management (demo)
+    cmd: |
+      echo "Smart MR management demo (automatically updates existing MR or creates new one):"
+      go run . \
+        --private-token "example-token" \
+        --source-branch "feature/smart-demo" \
+        --project-id 12345 \
+        --gitlab-url "https://gitlab.com" \
+        --user-id "67890" \
+        --target-branch main \
+        --commit-prefix "Ready" \
+        --description "README.md"
+
+  run-force-create:
+    desc: Run with force create mode (demo)
+    cmd: |
+      echo "Force create mode demo (only creates new MR, fails if exists):"
+      go run . \
+        --private-token "example-token" \
+        --source-branch "feature/force-create-demo" \
+        --project-id 12345 \
+        --gitlab-url "https://gitlab.com" \
+        --user-id "67890" \
+        --target-branch main \
+        --create-only \
+        --commit-prefix "New"
+
+  run-force-update:
+    desc: Run with force update mode (demo)
+    cmd: |
+      echo "Force update mode demo (only updates existing MR, fails if none exists):"
+      go run . \
+        --private-token "example-token" \
+        --source-branch "feature/force-update-demo" \
+        --project-id 12345 \
+        --gitlab-url "https://gitlab.com" \
+        --user-id "67890" \
+        --target-branch main \
+        --update-mr \
+        --commit-prefix "Updated"
+
   docker-build:
     desc: Build Docker image
     cmds:
@@ -78,16 +120,6 @@ tasks:
     desc: Run Docker container
     cmd: docker run --rm {{.DOCKER_IMAGE}}:latest ./{{.BINARY_NAME}} --help
     deps: [docker-build]
-
-  docker-compose-up:
-    desc: Run with docker-compose
-    cmds:
-      - test -f docker-compose.yml || cp docker-compose.example.yml docker-compose.yml
-      - docker-compose up
-
-  docker-compose-down:
-    desc: Stop docker-compose services
-    cmd: docker-compose down
 
   docker-push:
     desc: Push Docker image to GitHub Container Registry

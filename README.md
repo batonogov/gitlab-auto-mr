@@ -10,6 +10,8 @@ Automatically create Merge Requests in GitLab using a lightweight Go binary.
 - ✅ Compatible with GitLab CI/CD
 - ✅ Cross-platform support (Linux, macOS, Windows)
 - ✅ Built with Go 1.24 for optimal performance
+- ✅ Smart MR management - automatically updates existing MRs or creates new ones
+- ✅ No need to remember flags - works intelligently by default
 
 ## Docker Images
 
@@ -52,6 +54,7 @@ export CI_COMMIT_REF_NAME="feature/my-branch"
 2. **Run with Docker (recommended):**
 
 ```bash
+# Smart behavior: automatically updates existing MR or creates new one
 docker run --rm \
   -e GITLAB_PRIVATE_TOKEN \
   -e GITLAB_USER_ID \
@@ -59,7 +62,7 @@ docker run --rm \
   -e CI_PROJECT_URL \
   -e CI_COMMIT_REF_NAME \
   ghcr.io/batonogov/gitlab-auto-mr:latest \
-  gitlab_auto_mr --target-branch main
+  gitlab_auto_mr --target-branch main --commit-prefix "Ready"
 ```
 
 3. **Or build and run locally:**
@@ -68,26 +71,63 @@ docker run --rm \
 git clone https://github.com/user/gitlab-auto-mr.git
 cd gitlab-auto-mr
 task build
-./gitlab_auto_mr --target-branch main
+# Smart behavior: automatically updates existing MR or creates new one
+./gitlab_auto_mr --target-branch main --commit-prefix "Ready"
 ```
 
 ## Usage
 
 ### GitLab CI/CD
 
+#### Smart MR Management (Default)
+
 ```yaml
-create_mr:
+smart_mr:
   stage: create-mr
   image: ghcr.io/batonogov/gitlab-auto-mr:latest
   script:
     - |
+      # Automatically updates existing MR or creates new one
       gitlab_auto_mr \
         --target-branch main \
-        --commit-prefix "Draft" \
+        --commit-prefix "Ready" \
         --remove-branch \
         --squash-commits
   rules:
     - if: $CI_COMMIT_BRANCH != "main" && $CI_PIPELINE_SOURCE != "merge_request_event"
+```
+
+#### Smart MR Management (Default Behavior)
+
+```yaml
+manage_mr:
+  stage: manage-mr
+  image: ghcr.io/batonogov/gitlab-auto-mr:latest
+  script:
+    - |
+      # Smart behavior: automatically updates existing MR or creates new one
+      gitlab_auto_mr \
+        --target-branch main \
+        --commit-prefix "Ready" \
+        --description .gitlab/merge_request_template.md \
+        --use-issue-name \
+        --reviewer-id "${REVIEWER_IDS}"
+  rules:
+    - if: $CI_COMMIT_BRANCH != "main" && $CI_PIPELINE_SOURCE != "merge_request_event"
+```
+
+#### Advanced Control (Optional)
+
+```yaml
+# Force update only (fail if MR doesn't exist)
+update_only:
+  script:
+    - gitlab_auto_mr --update-mr --target-branch main
+
+# Force create only (fail if MR already exists)
+create_only:
+  script:
+    - gitlab_auto_mr --create-only --target-branch main
 ```
 
 ### Required Environment Variables
@@ -100,19 +140,21 @@ create_mr:
 
 ### CLI Options
 
-| Option                  | Short | Description                             | Default                |
-| ----------------------- | ----- | --------------------------------------- | ---------------------- |
-| `--target-branch`       | `-t`  | Target branch for MR                    | Project default branch |
-| `--commit-prefix`       | `-c`  | MR title prefix                         | `Draft`                |
-| `--title`               |       | Custom MR title                         | Source branch name     |
-| `--description`         | `-d`  | Path to description file                | -                      |
-| `--remove-branch`       | `-r`  | Delete source branch after merge        | `false`                |
-| `--squash-commits`      | `-s`  | Squash commits on merge                 | `false`                |
-| `--use-issue-name`      | `-i`  | Use issue data from branch name         | `false`                |
-| `--allow-collaboration` | `-a`  | Allow commits from merge target members | `false`                |
-| `--reviewer-id`         |       | Reviewer user ID(s) (comma-separated)   | -                      |
-| `--mr-exists`           |       | Only check if MR exists (dry run)       | `false`                |
-| `--insecure`            | `-k`  | Skip SSL certificate verification       | `false`                |
+| Option                  | Short | Description                                    | Default                |
+| ----------------------- | ----- | ---------------------------------------------- | ---------------------- |
+| `--target-branch`       | `-t`  | Target branch for MR                           | Project default branch |
+| `--commit-prefix`       | `-c`  | MR title prefix                                | `Draft`                |
+| `--title`               |       | Custom MR title                                | Source branch name     |
+| `--description`         | `-d`  | Path to description file                       | -                      |
+| `--remove-branch`       | `-r`  | Delete source branch after merge               | `false`                |
+| `--squash-commits`      | `-s`  | Squash commits on merge                        | `false`                |
+| `--use-issue-name`      | `-i`  | Use issue data from branch name                | `false`                |
+| `--allow-collaboration` | `-a`  | Allow commits from merge target members        | `false`                |
+| `--reviewer-id`         |       | Reviewer user ID(s) (comma-separated)          | -                      |
+| `--mr-exists`           |       | Only check if MR exists (dry run)              | `false`                |
+| `--update-mr`           |       | Force update existing MR (fail if none exists) | `false`                |
+| `--create-only`         |       | Force create new MR (fail if already exists)   | `false`                |
+| `--insecure`            | `-k`  | Skip SSL certificate verification              | `false`                |
 
 ## Building
 
@@ -177,12 +219,13 @@ docker build -t gitlab-auto-mr .
 
 ## Examples
 
-### Basic MR Creation
+### Smart MR Management (Default)
 
 ```bash
+# Automatically updates existing MR or creates new one
 ./gitlab_auto_mr \
   --target-branch main \
-  --commit-prefix "Draft"
+  --commit-prefix "Ready"
 ```
 
 ### With Reviewers
@@ -201,6 +244,27 @@ docker build -t gitlab-auto-mr .
   --target-branch main
 ```
 
+### Force Update Only
+
+```bash
+# Only update existing MR (fail if MR doesn't exist)
+./gitlab_auto_mr \
+  --update-mr \
+  --target-branch main \
+  --title "Updated Title" \
+  --description new_description.md
+```
+
+### Force Create Only
+
+```bash
+# Only create new MR (fail if MR already exists)
+./gitlab_auto_mr \
+  --create-only \
+  --target-branch main \
+  --reviewer-id "12345,67890"
+```
+
 ## Troubleshooting
 
 **Authentication Error**
@@ -211,13 +275,23 @@ Error: unable to get project 12345: unauthorized access, check your access token
 
 - Check your `GITLAB_PRIVATE_TOKEN` is valid and has `api` scope
 
-**MR Already Exists**
+**Force Update Mode Error**
 
 ```
-Merge request already exists for this branch feature/test to main
+Error: merge request does not exist for this branch feature/test to main, cannot update non-existent MR
 ```
 
-- This is normal behavior - use `--mr-exists` to check without creating
+- This happens when using `--update-mr` flag but no MR exists
+- Remove `--update-mr` flag to use smart mode (create new MR)
+
+**Force Create Mode Error**
+
+```
+Error: merge request already exists for this branch feature/test to main, cannot create new MR in create-only mode
+```
+
+- This happens when using `--create-only` flag but MR already exists
+- Remove `--create-only` flag to use smart mode (update existing MR)
 
 **Same Source/Target Branch**
 
