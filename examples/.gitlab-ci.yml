@@ -1,0 +1,239 @@
+# GitLab CI/CD Pipeline Example with Auto MR Management
+# This example demonstrates various ways to use gitlab-auto-mr with update functionality
+
+stages:
+  - create-mr
+  - update-mr
+
+variables:
+  # Docker image for gitlab-auto-mr
+  GITLAB_AUTO_MR_IMAGE: "ghcr.io/batonogov/gitlab-auto-mr:latest"
+  # Default target branch
+  TARGET_BRANCH: "main"
+  # MR description template
+  MR_DESCRIPTION_FILE: ".gitlab/merge_request_template.md"
+
+# Basic MR creation for feature branches
+create_mr_basic:
+  stage: create-mr
+  image: $GITLAB_AUTO_MR_IMAGE
+  script:
+    - |
+      gitlab_auto_mr \
+        --target-branch $TARGET_BRANCH \
+        --commit-prefix "Draft" \
+        --description $MR_DESCRIPTION_FILE \
+        --remove-branch \
+        --squash-commits
+  rules:
+    - if: $CI_COMMIT_BRANCH != $TARGET_BRANCH && $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH =~ /^(feature|feat)\/.*/
+
+# Smart MR management - update existing or create new
+manage_mr_smart:
+  stage: create-mr
+  image: $GITLAB_AUTO_MR_IMAGE
+  script:
+    - |
+      # Try to update existing MR first, fallback to creation
+      gitlab_auto_mr \
+        --update-mr \
+        --target-branch $TARGET_BRANCH \
+        --commit-prefix "Ready" \
+        --description $MR_DESCRIPTION_FILE \
+        --use-issue-name \
+        --allow-collaboration || \
+      gitlab_auto_mr \
+        --target-branch $TARGET_BRANCH \
+        --commit-prefix "Draft" \
+        --description $MR_DESCRIPTION_FILE \
+        --use-issue-name
+  rules:
+    - if: $CI_COMMIT_BRANCH != $TARGET_BRANCH && $CI_PIPELINE_SOURCE == "push"
+
+# Update MR with reviewers for specific branches
+update_mr_reviewers:
+  stage: update-mr
+  image: $GITLAB_AUTO_MR_IMAGE
+  variables:
+    REVIEWER_IDS: "123,456,789" # Replace with actual reviewer IDs
+  script:
+    - |
+      gitlab_auto_mr \
+        --update-mr \
+        --target-branch $TARGET_BRANCH \
+        --reviewer-id $REVIEWER_IDS \
+        --commit-prefix "Review" \
+        --description $MR_DESCRIPTION_FILE
+  rules:
+    - if: $CI_COMMIT_BRANCH != $TARGET_BRANCH && $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH =~ /^(feature|feat)\/.*/
+    - when: manual
+      allow_failure: true
+
+# Branch-specific MR management
+create_mr_hotfix:
+  stage: create-mr
+  image: $GITLAB_AUTO_MR_IMAGE
+  variables:
+    URGENT_REVIEWERS: "111,222" # Replace with urgent reviewer IDs
+  script:
+    - |
+      gitlab_auto_mr \
+        --update-mr \
+        --target-branch $TARGET_BRANCH \
+        --commit-prefix "🚨 URGENT" \
+        --title "Hotfix: $CI_COMMIT_SHORT_SHA - Critical Issue" \
+        --description $MR_DESCRIPTION_FILE \
+        --reviewer-id $URGENT_REVIEWERS \
+        --use-issue-name || \
+      gitlab_auto_mr \
+        --target-branch $TARGET_BRANCH \
+        --commit-prefix "🚨 URGENT" \
+        --title "Hotfix: $CI_COMMIT_SHORT_SHA - Critical Issue" \
+        --description $MR_DESCRIPTION_FILE \
+        --reviewer-id $URGENT_REVIEWERS
+  rules:
+    - if: $CI_COMMIT_BRANCH != $TARGET_BRANCH && $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH =~ /^hotfix\/.*/
+
+# Bugfix MR management
+create_mr_bugfix:
+  stage: create-mr
+  image: $GITLAB_AUTO_MR_IMAGE
+  script:
+    - |
+      gitlab_auto_mr \
+        --update-mr \
+        --target-branch $TARGET_BRANCH \
+        --commit-prefix "🐛 Fix" \
+        --description $MR_DESCRIPTION_FILE \
+        --use-issue-name \
+        --squash-commits || \
+      gitlab_auto_mr \
+        --target-branch $TARGET_BRANCH \
+        --commit-prefix "🐛 Draft Fix" \
+        --description $MR_DESCRIPTION_FILE \
+        --use-issue-name
+  rules:
+    - if: $CI_COMMIT_BRANCH != $TARGET_BRANCH && $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH =~ /^(bugfix|fix)\/.*/
+
+# Update MR with dynamic content
+update_mr_after_push:
+  stage: update-mr
+  image: $GITLAB_AUTO_MR_IMAGE
+  script:
+    - |
+      # Create description with commit information
+      echo "## Update Summary" > update_description.md
+      echo "" >> update_description.md
+      echo "✅ MR updated with new commits" >> update_description.md
+      echo "" >> update_description.md
+      echo "### Latest Changes" >> update_description.md
+      echo "" >> update_description.md
+      echo "- **Latest Commit**: $CI_COMMIT_SHA" >> update_description.md
+      echo "- **Branch**: $CI_COMMIT_BRANCH" >> update_description.md
+      echo "- **Pipeline**: $CI_PIPELINE_URL" >> update_description.md
+
+      # Update MR with new information
+      gitlab_auto_mr \
+        --update-mr \
+        --target-branch $TARGET_BRANCH \
+        --commit-prefix "Updated" \
+        --description update_description.md \
+        --title "feat: $CI_COMMIT_SHORT_SHA - Updated MR"
+  rules:
+    - if: $CI_COMMIT_BRANCH != $TARGET_BRANCH && $CI_PIPELINE_SOURCE == "push"
+
+# Advanced MR update with dynamic content
+update_mr_dynamic:
+  stage: update-mr
+  image: $GITLAB_AUTO_MR_IMAGE
+  variables:
+    ASSIGNEE_IDS: "100,200" # Replace with actual assignee IDs
+  script:
+    - |
+      # Generate dynamic description
+      cat > dynamic_description.md << EOF
+      # Merge Request: $CI_COMMIT_BRANCH → $TARGET_BRANCH
+
+      ## Summary
+
+      This MR contains changes from commit \`$CI_COMMIT_SHORT_SHA\`.
+
+      ## Changes Made
+
+      - Automated MR creation/update from CI/CD pipeline
+      - Branch: \`$CI_COMMIT_BRANCH\`
+      - Target: \`$TARGET_BRANCH\`
+
+      ## Pipeline Information
+
+      - **Pipeline ID**: $CI_PIPELINE_ID
+      - **Job ID**: $CI_JOB_ID
+      - **Commit**: [\`$CI_COMMIT_SHORT_SHA\`]($CI_PROJECT_URL/-/commit/$CI_COMMIT_SHA)
+      - **Author**: $CI_COMMIT_AUTHOR
+
+      ## Checklist
+
+      - [ ] Code review completed
+      - [ ] Tests passing
+      - [ ] Documentation updated
+      - [ ] Ready for merge
+
+      ---
+
+      *This MR was automatically created/updated by GitLab CI/CD pipeline.*
+      EOF
+
+      # Update MR with dynamic content
+      gitlab_auto_mr \
+        --update-mr \
+        --target-branch $TARGET_BRANCH \
+        --title "feat($CI_COMMIT_SHORT_SHA): Auto-updated MR" \
+        --description dynamic_description.md \
+        --user-id $ASSIGNEE_IDS \
+        --allow-collaboration
+  rules:
+    - if: $CI_COMMIT_BRANCH != $TARGET_BRANCH && $CI_PIPELINE_SOURCE == "push"
+    - when: manual
+      allow_failure: true
+
+# Check MR status (dry run)
+check_mr_status:
+  stage: create-mr
+  image: $GITLAB_AUTO_MR_IMAGE
+  script:
+    - |
+      echo "Checking MR status for branch: $CI_COMMIT_BRANCH"
+      gitlab_auto_mr \
+        --mr-exists \
+        --target-branch $TARGET_BRANCH
+  rules:
+    - if: $CI_COMMIT_BRANCH != $TARGET_BRANCH && $CI_PIPELINE_SOURCE == "push"
+    - when: manual
+      allow_failure: true
+
+# Conditional MR creation based on commit message
+create_mr_conditional:
+  stage: create-mr
+  image: $GITLAB_AUTO_MR_IMAGE
+  script:
+    - |
+      if echo "$CI_COMMIT_MESSAGE" | grep -q "\[create-mr\]"; then
+        echo "Creating MR due to [create-mr] tag in commit message"
+        gitlab_auto_mr \
+          --target-branch $TARGET_BRANCH \
+          --commit-prefix "Auto" \
+          --description $MR_DESCRIPTION_FILE \
+          --title "Auto: $CI_COMMIT_TITLE"
+      elif echo "$CI_COMMIT_MESSAGE" | grep -q "\[update-mr\]"; then
+        echo "Updating MR due to [update-mr] tag in commit message"
+        gitlab_auto_mr \
+          --update-mr \
+          --target-branch $TARGET_BRANCH \
+          --commit-prefix "Updated" \
+          --description $MR_DESCRIPTION_FILE \
+          --title "Updated: $CI_COMMIT_TITLE"
+      else
+        echo "No MR action tags found in commit message"
+      fi
+  rules:
+    - if: $CI_COMMIT_BRANCH != $TARGET_BRANCH && $CI_PIPELINE_SOURCE == "push"

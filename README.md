@@ -10,6 +10,8 @@ Automatically create Merge Requests in GitLab using a lightweight Go binary.
 - ✅ Compatible with GitLab CI/CD
 - ✅ Cross-platform support (Linux, macOS, Windows)
 - ✅ Built with Go 1.24 for optimal performance
+- ✅ Update existing MRs with new commits and metadata
+- ✅ Smart MR detection and management
 
 ## Docker Images
 
@@ -75,6 +77,8 @@ task build
 
 ### GitLab CI/CD
 
+#### Basic MR Creation
+
 ```yaml
 create_mr:
   stage: create-mr
@@ -90,6 +94,62 @@ create_mr:
     - if: $CI_COMMIT_BRANCH != "main" && $CI_PIPELINE_SOURCE != "merge_request_event"
 ```
 
+#### Update Existing MR on New Commits
+
+```yaml
+update_mr:
+  stage: update-mr
+  image: ghcr.io/batonogov/gitlab-auto-mr:latest
+  script:
+    - |
+      # Check if MR exists first
+      if gitlab_auto_mr --mr-exists --target-branch main; then
+        # Update existing MR with new information
+        gitlab_auto_mr \
+          --update-mr \
+          --target-branch main \
+          --commit-prefix "Ready" \
+          --description .gitlab/merge_request_template.md \
+          --use-issue-name
+      else
+        # Create new MR if it doesn't exist
+        gitlab_auto_mr \
+          --target-branch main \
+          --commit-prefix "Draft" \
+          --description .gitlab/merge_request_template.md
+      fi
+  rules:
+    - if: $CI_COMMIT_BRANCH != "main" && $CI_PIPELINE_SOURCE != "merge_request_event"
+```
+
+#### Smart MR Management
+
+```yaml
+manage_mr:
+  stage: manage-mr
+  image: ghcr.io/batonogov/gitlab-auto-mr:latest
+  variables:
+    MR_DESCRIPTION_FILE: ".gitlab/merge_request_description.md"
+  script:
+    - |
+      # Try to update existing MR first, fallback to creation
+      gitlab_auto_mr \
+        --update-mr \
+        --target-branch main \
+        --title "feat: ${CI_COMMIT_SHORT_SHA} - Auto-generated MR" \
+        --description "${MR_DESCRIPTION_FILE}" \
+        --reviewer-id "${REVIEWER_IDS}" \
+        --use-issue-name \
+        --allow-collaboration || \
+      gitlab_auto_mr \
+        --target-branch main \
+        --commit-prefix "Draft" \
+        --description "${MR_DESCRIPTION_FILE}" \
+        --reviewer-id "${REVIEWER_IDS}"
+  rules:
+    - if: $CI_COMMIT_BRANCH != "main" && $CI_PIPELINE_SOURCE != "merge_request_event"
+```
+
 ### Required Environment Variables
 
 - `GITLAB_PRIVATE_TOKEN` - GitLab personal access token with `api` scope
@@ -100,19 +160,20 @@ create_mr:
 
 ### CLI Options
 
-| Option                  | Short | Description                             | Default                |
-| ----------------------- | ----- | --------------------------------------- | ---------------------- |
-| `--target-branch`       | `-t`  | Target branch for MR                    | Project default branch |
-| `--commit-prefix`       | `-c`  | MR title prefix                         | `Draft`                |
-| `--title`               |       | Custom MR title                         | Source branch name     |
-| `--description`         | `-d`  | Path to description file                | -                      |
-| `--remove-branch`       | `-r`  | Delete source branch after merge        | `false`                |
-| `--squash-commits`      | `-s`  | Squash commits on merge                 | `false`                |
-| `--use-issue-name`      | `-i`  | Use issue data from branch name         | `false`                |
-| `--allow-collaboration` | `-a`  | Allow commits from merge target members | `false`                |
-| `--reviewer-id`         |       | Reviewer user ID(s) (comma-separated)   | -                      |
-| `--mr-exists`           |       | Only check if MR exists (dry run)       | `false`                |
-| `--insecure`            | `-k`  | Skip SSL certificate verification       | `false`                |
+| Option                  | Short | Description                                    | Default                |
+| ----------------------- | ----- | ---------------------------------------------- | ---------------------- |
+| `--target-branch`       | `-t`  | Target branch for MR                           | Project default branch |
+| `--commit-prefix`       | `-c`  | MR title prefix                                | `Draft`                |
+| `--title`               |       | Custom MR title                                | Source branch name     |
+| `--description`         | `-d`  | Path to description file                       | -                      |
+| `--remove-branch`       | `-r`  | Delete source branch after merge               | `false`                |
+| `--squash-commits`      | `-s`  | Squash commits on merge                        | `false`                |
+| `--use-issue-name`      | `-i`  | Use issue data from branch name                | `false`                |
+| `--allow-collaboration` | `-a`  | Allow commits from merge target members        | `false`                |
+| `--reviewer-id`         |       | Reviewer user ID(s) (comma-separated)          | -                      |
+| `--mr-exists`           |       | Only check if MR exists (dry run)              | `false`                |
+| `--update-mr`           |       | Update existing MR instead of creating new one | `false`                |
+| `--insecure`            | `-k`  | Skip SSL certificate verification              | `false`                |
 
 ## Building
 
@@ -201,6 +262,26 @@ docker build -t gitlab-auto-mr .
   --target-branch main
 ```
 
+### Update Existing MR
+
+```bash
+./gitlab_auto_mr \
+  --update-mr \
+  --target-branch main \
+  --title "Updated Title" \
+  --description new_description.md
+```
+
+### Force Update MR with New Reviewers
+
+```bash
+./gitlab_auto_mr \
+  --update-mr \
+  --target-branch main \
+  --reviewer-id "12345,67890" \
+  --use-issue-name
+```
+
 ## Troubleshooting
 
 **Authentication Error**
@@ -215,9 +296,19 @@ Error: unable to get project 12345: unauthorized access, check your access token
 
 ```
 Merge request already exists for this branch feature/test to main
+Use --update-mr flag to update the existing MR instead.
 ```
 
 - This is normal behavior - use `--mr-exists` to check without creating
+- Use `--update-mr` to update the existing MR with new parameters
+
+**Updating Non-Existent MR**
+
+```
+Merge request does not exist for this branch feature/test to main, run without flag '--mr-exists' to open merge request.
+```
+
+- Remove `--update-mr` flag to create a new MR instead
 
 **Same Source/Target Branch**
 

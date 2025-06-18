@@ -32,6 +32,7 @@ type Config struct {
 	UseIssueName       bool
 	AllowCollaboration bool
 	MRExists           bool
+	UpdateMR           bool
 }
 
 type Project struct {
@@ -69,6 +70,18 @@ type MRCreateRequest struct {
 	RemoveSourceBranch bool     `json:"remove_source_branch"`
 	Squash             bool     `json:"squash"`
 	AllowCollaboration bool     `json:"allow_collaboration"`
+	MilestoneID        int      `json:"milestone_id,omitempty"`
+	Labels             []string `json:"labels,omitempty"`
+}
+
+type MRUpdateRequest struct {
+	Title              string   `json:"title,omitempty"`
+	Description        string   `json:"description,omitempty"`
+	AssigneeIDs        []int    `json:"assignee_ids,omitempty"`
+	ReviewerIDs        []int    `json:"reviewer_ids,omitempty"`
+	RemoveSourceBranch bool     `json:"remove_source_branch,omitempty"`
+	Squash             bool     `json:"squash,omitempty"`
+	AllowCollaboration bool     `json:"allow_collaboration,omitempty"`
 	MilestoneID        int      `json:"milestone_id,omitempty"`
 	Labels             []string `json:"labels,omitempty"`
 }
@@ -111,6 +124,7 @@ func parseFlags() *Config {
 	flag.BoolVar(&config.AllowCollaboration, "allow-collaboration", false, "Allow collaboration")
 	flag.BoolVar(&config.AllowCollaboration, "a", false, "Allow collaboration (short)")
 	flag.BoolVar(&config.MRExists, "mr-exists", false, "Check if MR exists (dry run)")
+	flag.BoolVar(&config.UpdateMR, "update-mr", false, "Update existing MR instead of creating new one")
 
 	flag.Parse()
 
@@ -174,29 +188,61 @@ func run(config *Config) error {
 	}
 
 	// Check if MR exists
-	exists, err := checkMRExists(client, config)
+	existingMR, err := getExistingMR(client, config)
 	if err != nil {
 		return fmt.Errorf("failed to check if MR exists: %v", err)
 	}
 
 	if config.MRExists {
-		if !exists {
+		if existingMR == nil {
 			fmt.Printf("Merge request does not exist for this branch %s to %s, run without flag '--mr-exists' to open merge request.\n",
 				config.SourceBranch, config.TargetBranch)
+		} else {
+			fmt.Printf("Merge request exists: %s (IID: %d)\n", existingMR.Title, existingMR.IID)
 		}
 		return nil
 	}
 
-	if exists {
+	if existingMR != nil && !config.UpdateMR {
 		fmt.Printf("Merge request already exists for this branch %s to %s, no new merge request opened.\n",
 			config.SourceBranch, config.TargetBranch)
+		fmt.Printf("Use --update-mr flag to update the existing MR instead.\n")
 		return nil
 	}
 
-	// Create MR
 	title := getMRTitle(config.CommitPrefix, config.Title, config.SourceBranch)
 	description := getDescriptionData(config.Description)
 
+	if existingMR != nil && config.UpdateMR {
+		// Update existing MR
+		updateRequest := &MRUpdateRequest{
+			Title:              title,
+			Description:        description,
+			AssigneeIDs:        config.UserIDs,
+			ReviewerIDs:        config.ReviewerIDs,
+			RemoveSourceBranch: config.RemoveBranch,
+			Squash:             config.SquashCommits,
+			AllowCollaboration: config.AllowCollaboration,
+		}
+
+		// Get issue data if requested
+		if config.UseIssueName {
+			issueData, err := getIssueData(client, config)
+			if err == nil {
+				updateRequest.MilestoneID = issueData.Milestone.ID
+				updateRequest.Labels = issueData.Labels
+			}
+		}
+
+		if err := updateMR(client, config, existingMR.IID, updateRequest); err != nil {
+			return fmt.Errorf("failed to update MR: %v", err)
+		}
+
+		fmt.Printf("Updated existing MR %s (IID: %d)\n", title, existingMR.IID)
+		return nil
+	}
+
+	// Create new MR
 	mrRequest := &MRCreateRequest{
 		SourceBranch:       config.SourceBranch,
 		TargetBranch:       config.TargetBranch,
@@ -281,38 +327,38 @@ func validateMR(sourceBranch, targetBranch string) error {
 	return nil
 }
 
-func checkMRExists(client *http.Client, config *Config) (bool, error) {
+func getExistingMR(client *http.Client, config *Config) (*MergeRequest, error) {
 	url := fmt.Sprintf("%s/api/v4/projects/%d/merge_requests?state=opened", config.GitLabURL, config.ProjectID)
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 
 	req.Header.Set("PRIVATE-TOKEN", config.PrivateToken)
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return false, fmt.Errorf("HTTP %d", resp.StatusCode)
+		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 
 	var mrs []MergeRequest
 	if err := json.NewDecoder(resp.Body).Decode(&mrs); err != nil {
-		return false, err
+		return nil, err
 	}
 
 	for _, mr := range mrs {
 		if mr.SourceBranch == config.SourceBranch && mr.TargetBranch == config.TargetBranch {
-			return true, nil
+			return &mr, nil
 		}
 	}
 
-	return false, nil
+	return nil, nil
 }
 
 func getMRTitle(prefix, title, sourceBranch string) string {
@@ -406,6 +452,36 @@ func createMR(client *http.Client, config *Config, mrRequest *MRCreateRequest) e
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 201 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
+	}
+
+	return nil
+}
+
+func updateMR(client *http.Client, config *Config, mrIID int, updateRequest *MRUpdateRequest) error {
+	url := fmt.Sprintf("%s/api/v4/projects/%d/merge_requests/%d", config.GitLabURL, config.ProjectID, mrIID)
+
+	jsonData, err := json.Marshal(updateRequest)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequest("PUT", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("PRIVATE-TOKEN", config.PrivateToken)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
 	}
