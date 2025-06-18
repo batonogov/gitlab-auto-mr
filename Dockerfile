@@ -1,4 +1,6 @@
-FROM golang:1.24-alpine3.22 AS builder
+ARG GO_VERSION=1.24
+ARG ALPINE_VERSION=3.22
+FROM golang:${GO_VERSION}-alpine${ALPINE_VERSION} AS builder
 
 WORKDIR /app
 
@@ -15,7 +17,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o gitlab_auto_mr .
 
 # Final stage
-FROM alpine:3.22
+FROM alpine:${ALPINE_VERSION}
 
 RUN apk --no-cache add ca-certificates
 
