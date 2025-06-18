@@ -54,6 +54,7 @@ export CI_COMMIT_REF_NAME="feature/my-branch"
 2. **Run with Docker (recommended):**
 
 ```bash
+# Smart behavior: automatically updates existing MR or creates new one
 docker run --rm \
   -e GITLAB_PRIVATE_TOKEN \
   -e GITLAB_USER_ID \
@@ -61,7 +62,7 @@ docker run --rm \
   -e CI_PROJECT_URL \
   -e CI_COMMIT_REF_NAME \
   ghcr.io/batonogov/gitlab-auto-mr:latest \
-  gitlab_auto_mr --target-branch main
+  gitlab_auto_mr --target-branch main --commit-prefix "Ready"
 ```
 
 3. **Or build and run locally:**
@@ -70,24 +71,26 @@ docker run --rm \
 git clone https://github.com/user/gitlab-auto-mr.git
 cd gitlab-auto-mr
 task build
-./gitlab_auto_mr --target-branch main
+# Smart behavior: automatically updates existing MR or creates new one
+./gitlab_auto_mr --target-branch main --commit-prefix "Ready"
 ```
 
 ## Usage
 
 ### GitLab CI/CD
 
-#### Basic MR Creation
+#### Smart MR Management (Default)
 
 ```yaml
-create_mr:
+smart_mr:
   stage: create-mr
   image: ghcr.io/batonogov/gitlab-auto-mr:latest
   script:
     - |
+      # Automatically updates existing MR or creates new one
       gitlab_auto_mr \
         --target-branch main \
-        --commit-prefix "Draft" \
+        --commit-prefix "Ready" \
         --remove-branch \
         --squash-commits
   rules:
