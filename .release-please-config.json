@@ -51,11 +51,9 @@
           "section": "Continuous Integration"
         }
       ],
-      "extra-files": [
-        "README.md"
-      ]
+      "extra-files": ["README.md"]
     }
   },
-  "bootstrap-sha": "bd3695092cdae94c95438d156219e2507e785744",
+  "bootstrap-sha": "9df122bfc33291424e3e00fbaa5c141b2307fac8",
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json"
 }
