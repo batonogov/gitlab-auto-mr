@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.2](https://github.com/batonogov/gitlab-auto-mr/compare/v1.6.1...v1.6.2) (2025-06-18)
+
+
+### Bug Fixes
+
+* resolve release-please commit parsing issues ([#28](https://github.com/batonogov/gitlab-auto-mr/issues/28)) ([65fb3bb](https://github.com/batonogov/gitlab-auto-mr/commit/65fb3bb67e552de0d3fd4ff2d58ae108292255a0))
+
 ## [1.6.1](https://github.com/batonogov/gitlab-auto-mr/compare/v1.6.0...v1.6.1) (2025-06-11)
 
 
