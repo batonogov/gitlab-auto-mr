@@ -30,7 +30,7 @@ jobs:
       should-release: ${{ steps.check.outputs.should-release }}
     steps:
       - name: 📋 Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -232,7 +232,7 @@ jobs:
     if: github.event.action == 'closed' && github.event.pull_request.merged == true
     steps:
       - name: 📋 Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
