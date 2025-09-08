@@ -35,7 +35,7 @@ jobs:
           fetch-depth: 0
 
       - name: 🔧 Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '18'
 
@@ -149,7 +149,7 @@ jobs:
 
       - name: 💬 Add Release Preview Comment
         if: steps.check.outputs.should-release == 'true'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const { data: comments } = await github.rest.issues.listComments({
@@ -274,7 +274,7 @@ jobs:
           fi
 
       - name: 🔗 Add Workflow Links Comment
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const body = `## ✅ Merged Successfully
