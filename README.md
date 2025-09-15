@@ -9,7 +9,7 @@ Automatically create Merge Requests in GitLab using a lightweight Go binary.
 - ✅ Fast execution (~10ms startup time)
 - ✅ Compatible with GitLab CI/CD
 - ✅ Cross-platform support (Linux, macOS, Windows)
-- ✅ Built with Go 1.24 for optimal performance
+- ✅ Built with Go 1.25 for optimal performance
 - ✅ Smart MR management - automatically updates existing MRs or creates new ones
 - ✅ No need to remember flags - works intelligently by default
 
@@ -160,7 +160,7 @@ create_only:
 
 ### Prerequisites
 
-- Go 1.24 or later
+- Go 1.25 or later
 - Task (optional, for build automation)
 
 ### Local Development

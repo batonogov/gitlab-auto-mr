@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -17,7 +17,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.21'
+          go-version: "1.25"
           cache: true
 
       - name: Cache Go modules
@@ -60,7 +60,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.21'
+          go-version: "1.25"
           cache: true
 
       - name: Check formatting
@@ -89,7 +89,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.21'
+          go-version: "1.25"
           cache: true
 
       - name: Build for multiple platforms
@@ -124,7 +124,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.21'
+          go-version: "1.25"
 
       - name: Install gosec
         run: go install github.com/securecodewarrior/gosec/v2/cmd/gosec@latest
