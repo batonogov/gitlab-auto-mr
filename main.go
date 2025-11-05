@@ -220,7 +220,13 @@ func run(config *Config) error {
 	title := getMRTitle(config.CommitPrefix, config.Title, config.SourceBranch)
 	description := getDescriptionData(config.Description)
 
-	// Smart MR management: update existing MR if it exists, otherwise create new one
+	// If MR exists but --update-mr flag is not set, just inform and exit
+	if existingMR != nil && !config.UpdateMR {
+		fmt.Printf("Merge request already exists: %s (IID: %d). Use --update-mr flag to update it.\n", existingMR.Title, existingMR.IID)
+		return nil
+	}
+
+	// Update existing MR if --update-mr flag is set
 	if existingMR != nil {
 		// Update existing MR
 		updateRequest := &MRUpdateRequest{

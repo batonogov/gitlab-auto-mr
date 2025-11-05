@@ -845,6 +845,57 @@ func TestErrorHandling(t *testing.T) {
 	}
 }
 
+func TestRunExistingMRWithoutUpdateFlag(t *testing.T) {
+	// Mock server that simulates existing MR
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/api/v4/projects/123") && r.Method == "GET" && !strings.Contains(r.URL.Path, "merge_requests"):
+			project := Project{
+				ID:            123,
+				Name:          "test-project",
+				DefaultBranch: "main",
+			}
+			json.NewEncoder(w).Encode(project)
+		case strings.HasPrefix(r.URL.Path, "/api/v4/projects/123/merge_requests") && r.Method == "GET":
+			// Return existing MR
+			mrs := []MergeRequest{
+				{
+					ID:           1,
+					IID:          1,
+					Title:        "Existing MR",
+					SourceBranch: "feature/test",
+					TargetBranch: "main",
+					State:        "opened",
+				},
+			}
+			json.NewEncoder(w).Encode(mrs)
+		case strings.HasPrefix(r.URL.Path, "/api/v4/projects/123/merge_requests/1") && r.Method == "PUT":
+			// This should not be called
+			t.Error("Update MR should not be called when --update-mr flag is not set")
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer server.Close()
+
+	config := &Config{
+		GitLabURL:     server.URL,
+		ProjectID:     123,
+		PrivateToken:  "test-token",
+		SourceBranch:  "feature/test",
+		TargetBranch:  "main",
+		UserIDs:       []int{1},
+		UpdateMR:      false, // No update flag
+		CommitPrefix:  "Draft",
+		RemoveBranch:  false,
+		SquashCommits: false,
+	}
+
+	err := run(config)
+	if err != nil {
+		t.Errorf("Expected no error when MR exists without --update-mr flag, got %v", err)
+	}
+}
+
 func TestRunWithIssueData(t *testing.T) {
 	// Mock server that supports issue data
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
