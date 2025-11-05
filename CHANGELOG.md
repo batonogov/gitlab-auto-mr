@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.0](https://github.com/batonogov/gitlab-auto-mr/compare/v1.6.2...v1.7.0) (2025-11-05)
+
+
+### Features
+
+* add explicit --update-mr flag requirement ([#47](https://github.com/batonogov/gitlab-auto-mr/issues/47)) ([0248376](https://github.com/batonogov/gitlab-auto-mr/commit/02483764c5187c411a3afa8258b5d9b63748caf9))
+
 ## [1.6.2](https://github.com/batonogov/gitlab-auto-mr/compare/v1.6.1...v1.6.2) (2025-06-18)
 
 
