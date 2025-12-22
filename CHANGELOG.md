@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.7.1](https://github.com/batonogov/gitlab-auto-mr/compare/v1.7.0...v1.7.1) (2025-12-22)
+
+
+### Maintenance
+
+* **deps:** bump actions/checkout in the github-actions group ([#51](https://github.com/batonogov/gitlab-auto-mr/issues/51)) ([c99dd76](https://github.com/batonogov/gitlab-auto-mr/commit/c99dd761b7bb14be1b02647ba1161b4200e65dc0))
+* **deps:** bump alpine from 3.23.0 to 3.23.2 in the docker-dependencies group ([#55](https://github.com/batonogov/gitlab-auto-mr/issues/55)) ([5c39ca8](https://github.com/batonogov/gitlab-auto-mr/commit/5c39ca895aede4aa8bcb9e95909d54d1d7ae666c))
+* **deps:** bump golang in the docker-dependencies group ([#49](https://github.com/batonogov/gitlab-auto-mr/issues/49)) ([9e2ed13](https://github.com/batonogov/gitlab-auto-mr/commit/9e2ed13b4983e04d07825f03d5c9d7ce298a42b0))
+* **deps:** bump golangci/golangci-lint-action ([#50](https://github.com/batonogov/gitlab-auto-mr/issues/50)) ([f9b6a8e](https://github.com/batonogov/gitlab-auto-mr/commit/f9b6a8e5aa11e68aaf1b6712b2102d7ed9c21842))
+* **deps:** bump the docker-dependencies group with 2 updates ([#52](https://github.com/batonogov/gitlab-auto-mr/issues/52)) ([55b1ba4](https://github.com/batonogov/gitlab-auto-mr/commit/55b1ba4abbd87e74b1063a79601ec9680578afb3))
+* **deps:** bump the github-actions group with 2 updates ([#54](https://github.com/batonogov/gitlab-auto-mr/issues/54)) ([13128ed](https://github.com/batonogov/gitlab-auto-mr/commit/13128ed697fff28926a2a9bf7fb3006b077ceb3a))
+* include chore in release-please sections ([#56](https://github.com/batonogov/gitlab-auto-mr/issues/56)) ([5785c60](https://github.com/batonogov/gitlab-auto-mr/commit/5785c603664c4d517fbd937bbae7f1c419fef9fc))
+
 ## [1.7.0](https://github.com/batonogov/gitlab-auto-mr/compare/v1.6.2...v1.7.0) (2025-11-05)
 
 
