@@ -15,6 +15,10 @@
           "section": "Bug Fixes"
         },
         {
+          "type": "chore",
+          "section": "Maintenance"
+        },
+        {
           "type": "perf",
           "section": "Performance Improvements"
         },
