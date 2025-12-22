@@ -18,8 +18,8 @@ on:
 env:
   # Use docker.io for Docker Hub if empty
   REGISTRY: ghcr.io
-  # github.repository as <account>/<repo>
-  IMAGE_NAME: ${{ github.actor }}/gitlab-auto-mr
+  # github.repository_owner as <account>
+  IMAGE_NAME: ${{ github.repository_owner }}/gitlab-auto-mr
 
 jobs:
   build:
