@@ -15,6 +15,13 @@ import (
 	"time"
 )
 
+// Version information set via ldflags at build time.
+var (
+	Version   = "dev"
+	GitCommit = "none"
+	BuildDate = "unknown"
+)
+
 type Config struct {
 	PrivateToken       string
 	SourceBranch       string
@@ -100,6 +107,7 @@ func parseFlags() *Config {
 	config := &Config{}
 
 	var userIDsStr, reviewerIDsStr string
+	var showVersion bool
 
 	flag.StringVar(&config.PrivateToken, "private-token", getEnv("GITLAB_PRIVATE_TOKEN", ""), "Private GITLAB token")
 	flag.StringVar(&config.SourceBranch, "source-branch", getEnv("CI_COMMIT_REF_NAME", ""), "Source branch to merge from")
@@ -127,8 +135,15 @@ func parseFlags() *Config {
 	flag.BoolVar(&config.MRExists, "mr-exists", false, "Check if MR exists (dry run)")
 	flag.BoolVar(&config.UpdateMR, "update-mr", false, "Update existing MR instead of creating new one")
 	flag.BoolVar(&config.CreateOnly, "create-only", false, "Only create new MR, fail if MR already exists")
+	flag.BoolVar(&showVersion, "version", false, "Show version information and exit")
+	flag.BoolVar(&showVersion, "v", false, "Show version information and exit (short)")
 
 	flag.Parse()
+
+	if showVersion {
+		fmt.Println(versionInfo())
+		os.Exit(0)
+	}
 
 	// Validate required fields
 	if config.PrivateToken == "" {
@@ -500,6 +515,10 @@ func updateMR(client *http.Client, config *Config, mrIID int, updateRequest *MRU
 	}
 
 	return nil
+}
+
+func versionInfo() string {
+	return fmt.Sprintf("gitlab-auto-mr %s (commit: %s, built: %s)", Version, GitCommit, BuildDate)
 }
 
 func getEnv(key, defaultValue string) string {
