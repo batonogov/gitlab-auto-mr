@@ -3,7 +3,7 @@ name: 🤖 Auto Pull Request
 on:
   push:
     branches:
-      - '*'
+      - '**'
       - '!main'
       - '!release-please--*'  # Exclude Release Please branches
 

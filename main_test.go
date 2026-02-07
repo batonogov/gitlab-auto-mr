@@ -329,9 +329,19 @@ func TestGetProject(t *testing.T) {
 }
 
 func TestGetExistingMR(t *testing.T) {
-	// Mock server
+	// Mock server that filters by source_branch and target_branch query params
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mrs := []MergeRequest{
+		sourceBranch := r.URL.Query().Get("source_branch")
+		targetBranch := r.URL.Query().Get("target_branch")
+
+		if sourceBranch == "" || targetBranch == "" {
+			t.Error("Expected source_branch and target_branch query parameters")
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		// Simulate GitLab API filtering
+		allMRs := []MergeRequest{
 			{
 				ID:           1,
 				IID:          1,
@@ -349,7 +359,15 @@ func TestGetExistingMR(t *testing.T) {
 				State:        "opened",
 			},
 		}
-		json.NewEncoder(w).Encode(mrs)
+
+		var filtered []MergeRequest
+		for _, mr := range allMRs {
+			if mr.SourceBranch == sourceBranch && mr.TargetBranch == targetBranch {
+				filtered = append(filtered, mr)
+			}
+		}
+
+		json.NewEncoder(w).Encode(filtered)
 	}))
 	defer server.Close()
 
@@ -368,7 +386,7 @@ func TestGetExistingMR(t *testing.T) {
 		t.Errorf("Expected no error, got %v", err)
 	}
 	if mr == nil {
-		t.Error("Expected to find MR, got nil")
+		t.Fatal("Expected to find MR, got nil")
 	}
 	if mr.SourceBranch != "feature/test" {
 		t.Errorf("Expected source branch 'feature/test', got '%s'", mr.SourceBranch)
@@ -382,6 +400,61 @@ func TestGetExistingMR(t *testing.T) {
 	}
 	if mr != nil {
 		t.Error("Expected not to find MR, got one")
+	}
+}
+
+func TestGetExistingMRServerSideFiltering(t *testing.T) {
+	// Verify that the function relies on server-side filtering
+	// by returning only filtered results (no local filtering needed)
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		sourceBranch := r.URL.Query().Get("source_branch")
+		targetBranch := r.URL.Query().Get("target_branch")
+
+		if sourceBranch != "feature/target" {
+			t.Errorf("Expected source_branch 'feature/target', got '%s'", sourceBranch)
+		}
+		if targetBranch != "main" {
+			t.Errorf("Expected target_branch 'main', got '%s'", targetBranch)
+		}
+
+		// Return a single matching MR (as GitLab API would after filtering)
+		mrs := []MergeRequest{
+			{
+				ID:           42,
+				IID:          42,
+				Title:        "Filtered MR",
+				SourceBranch: "feature/target",
+				TargetBranch: "main",
+				State:        "opened",
+			},
+		}
+		json.NewEncoder(w).Encode(mrs)
+	}))
+	defer server.Close()
+
+	client := &http.Client{}
+	config := &Config{
+		GitLabURL:    server.URL,
+		ProjectID:    123,
+		PrivateToken: "test-token",
+		SourceBranch: "feature/target",
+		TargetBranch: "main",
+	}
+
+	mr, err := getExistingMR(client, config)
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+	if mr == nil {
+		t.Fatal("Expected to find MR, got nil")
+	}
+	if mr.IID != 42 {
+		t.Errorf("Expected MR IID 42, got %d", mr.IID)
+	}
+	if requestCount != 1 {
+		t.Errorf("Expected exactly 1 API request, got %d", requestCount)
 	}
 }
 
