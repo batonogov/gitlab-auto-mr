@@ -342,9 +342,10 @@ func validateMR(sourceBranch, targetBranch string) error {
 }
 
 func getExistingMR(client *http.Client, config *Config) (*MergeRequest, error) {
-	url := fmt.Sprintf("%s/api/v4/projects/%d/merge_requests?state=opened", config.GitLabURL, config.ProjectID)
+	apiURL := fmt.Sprintf("%s/api/v4/projects/%d/merge_requests?state=opened&source_branch=%s&target_branch=%s",
+		config.GitLabURL, config.ProjectID, config.SourceBranch, config.TargetBranch)
 
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -366,10 +367,8 @@ func getExistingMR(client *http.Client, config *Config) (*MergeRequest, error) {
 		return nil, err
 	}
 
-	for _, mr := range mrs {
-		if mr.SourceBranch == config.SourceBranch && mr.TargetBranch == config.TargetBranch {
-			return &mr, nil
-		}
+	if len(mrs) > 0 {
+		return &mrs[0], nil
 	}
 
 	return nil, nil
