@@ -11,6 +11,30 @@ import (
 	"time"
 )
 
+func TestVersionInfo(t *testing.T) {
+	result := versionInfo()
+	if !strings.Contains(result, "gitlab-auto-mr") {
+		t.Errorf("Expected version info to contain 'gitlab-auto-mr', got '%s'", result)
+	}
+	if !strings.Contains(result, Version) {
+		t.Errorf("Expected version info to contain version '%s', got '%s'", Version, result)
+	}
+	if !strings.Contains(result, GitCommit) {
+		t.Errorf("Expected version info to contain commit '%s', got '%s'", GitCommit, result)
+	}
+	if !strings.Contains(result, BuildDate) {
+		t.Errorf("Expected version info to contain build date '%s', got '%s'", BuildDate, result)
+	}
+}
+
+func TestVersionInfoDefaults(t *testing.T) {
+	result := versionInfo()
+	expected := "gitlab-auto-mr dev (commit: none, built: unknown)"
+	if result != expected {
+		t.Errorf("Expected '%s', got '%s'", expected, result)
+	}
+}
+
 func TestGetEnv(t *testing.T) {
 	// Test with existing environment variable
 	os.Setenv("TEST_VAR", "test_value")
