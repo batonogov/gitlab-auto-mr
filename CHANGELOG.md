@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.3](https://github.com/batonogov/gitlab-auto-mr/compare/v1.7.2...v1.7.3) (2026-02-20)
+
+
+### Maintenance
+
+* **deps:** bump golang in the docker-dependencies group ([#63](https://github.com/batonogov/gitlab-auto-mr/issues/63)) ([c3f4672](https://github.com/batonogov/gitlab-auto-mr/commit/c3f46725225417316037ecd02773dcc65f638f40))
+
 ## [1.7.2](https://github.com/batonogov/gitlab-auto-mr/compare/v1.7.1...v1.7.2) (2026-02-02)
 
 
