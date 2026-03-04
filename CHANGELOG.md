@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.5](https://github.com/batonogov/gitlab-auto-mr/compare/v1.7.4...v1.7.5) (2026-03-04)
+
+
+### Maintenance
+
+* **deps:** bump the github-actions group across 1 directory with 2 updates ([#84](https://github.com/batonogov/gitlab-auto-mr/issues/84)) ([ce4da1f](https://github.com/batonogov/gitlab-auto-mr/commit/ce4da1ff47725c9f99ba8bcab4d7d322ecbf942a))
+
 ## [1.7.4](https://github.com/batonogov/gitlab-auto-mr/compare/v1.7.3...v1.7.4) (2026-02-28)
 
 
