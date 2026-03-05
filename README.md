@@ -5,11 +5,10 @@ Automatically create Merge Requests in GitLab using a lightweight Go binary.
 ## Features
 
 - ✅ Zero external dependencies - uses only Go standard library
-- ✅ Small Docker image (~26MB with Alpine 3.22)
-- ✅ Fast execution (~10ms startup time)
+- ✅ Small Docker image (Alpine-based)
+- ✅ Fast execution
 - ✅ Compatible with GitLab CI/CD
 - ✅ Cross-platform support (Linux, macOS, Windows)
-- ✅ Built with Go 1.25 for optimal performance
 - ✅ Safe MR management - explicit control over creating or updating MRs
 - ✅ Prevents accidental overwrites - requires `--update-mr` flag to update existing MRs
 
@@ -20,8 +19,8 @@ Docker images are automatically built and published to GitHub Container Registry
 ### Available Tags
 
 - `latest` - Latest stable release
-- `vX.Y.Z` - Specific version (e.g., `v1.6.0`)
-- `vX.Y` - Latest patch version of a minor release (e.g., `v1.6`)
+- `vX.Y.Z` - Specific version
+- `vX.Y` - Latest patch version of a minor release
 - `vX` - Latest minor and patch version of a major release (e.g., `v1`)
 
 ### Pull the Image
@@ -31,7 +30,7 @@ Docker images are automatically built and published to GitHub Container Registry
 docker pull ghcr.io/batonogov/gitlab-auto-mr:latest
 
 # Specific version
-docker pull ghcr.io/batonogov/gitlab-auto-mr:v1.6.0
+docker pull ghcr.io/batonogov/gitlab-auto-mr:vX.Y.Z
 ```
 
 ### Supported Platforms
@@ -162,7 +161,7 @@ create_only:
 
 ### Prerequisites
 
-- Go 1.25 or later
+- Go (see `go.mod` for minimum version)
 - Task (optional, for build automation)
 
 ### Local Development
@@ -312,16 +311,6 @@ Error: source branch and target branches must be different
 ```
 
 - Ensure you're not running on the target branch
-
-## Performance vs Python Version
-
-| Metric       | Go Version | Python Version |
-| ------------ | ---------- | -------------- |
-| Binary Size  | ~5.7MB     | ~50MB+         |
-| Docker Image | ~26MB      | ~80MB+         |
-| Startup Time | ~10ms      | ~200ms+        |
-| Memory Usage | ~5MB       | ~20MB+         |
-| Dependencies | 0 external | 10+ packages   |
 
 ## License
 
