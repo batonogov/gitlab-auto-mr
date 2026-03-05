@@ -1257,19 +1257,16 @@ func TestCreateMRInvalidResponseBody(t *testing.T) {
 		PrivateToken: "test-token",
 	}
 
-	mr, err := createMR(client, config, &MRCreateRequest{
+	_, err := createMR(client, config, &MRCreateRequest{
 		SourceBranch: "feature/test",
 		TargetBranch: "main",
 		Title:        "Test MR",
 	})
-	if err != nil {
-		t.Errorf("Expected no error even with invalid JSON body, got %v", err)
+	if err == nil {
+		t.Error("Expected error for invalid JSON body")
 	}
-	if mr == nil {
-		t.Fatal("Expected non-nil MR")
-	}
-	if mr.IID != 0 {
-		t.Errorf("Expected zero IID for invalid body, got %d", mr.IID)
+	if !strings.Contains(err.Error(), "MR created but response is invalid") {
+		t.Errorf("Expected 'MR created but response is invalid' in error, got: %v", err)
 	}
 }
 

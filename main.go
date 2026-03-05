@@ -518,8 +518,7 @@ func createMR(client *http.Client, config *Config, mrRequest *MRCreateRequest) (
 		if err == io.EOF {
 			return &mr, nil
 		}
-		fmt.Printf("Warning: MR created but failed to parse response: %v\n", err)
-		return &mr, nil
+		return nil, fmt.Errorf("MR created but response is invalid: %v", err)
 	}
 
 	return &mr, nil
