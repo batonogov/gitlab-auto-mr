@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.8.0](https://github.com/batonogov/gitlab-auto-mr/compare/v1.7.5...v1.8.0) (2026-03-05)
+
+
+### Features
+
+* add --auto-merge flag ([a27ca7a](https://github.com/batonogov/gitlab-auto-mr/commit/a27ca7a9da750c758d486e9b0e52f809f83c855e))
+* add --auto-merge flag to enable merge when pipeline succeeds ([c99b573](https://github.com/batonogov/gitlab-auto-mr/commit/c99b573d928c792ecba746de5e46b4ebbb9223f1))
+
+
+### Bug Fixes
+
+* adjust message when MR exists with --auto-merge ([bbde1ee](https://github.com/batonogov/gitlab-auto-mr/commit/bbde1ee8ab510f54c7b5a2a68f3dc7cca388de6f))
+* distinguish empty vs malformed JSON in createMR response ([ee61a50](https://github.com/batonogov/gitlab-auto-mr/commit/ee61a50965fe3511789528db3a1a1ecdb539e932))
+* handle empty response body from createMR gracefully ([3571d5c](https://github.com/batonogov/gitlab-auto-mr/commit/3571d5c489973f5a77d8496b1550018f49c225c0))
+* return error for malformed JSON in createMR response ([351014a](https://github.com/batonogov/gitlab-auto-mr/commit/351014a6220f8c4f3ee9956d012f515995c19a01))
+
+
+### Tests
+
+* add TestAcceptMR406 for unresolved discussions error ([632abee](https://github.com/batonogov/gitlab-auto-mr/commit/632abee22651e73267cb9d5e5d5398c7b2ba0fa0))
+
 ## [1.7.5](https://github.com/batonogov/gitlab-auto-mr/compare/v1.7.4...v1.7.5) (2026-03-04)
 
 
