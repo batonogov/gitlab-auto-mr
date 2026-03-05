@@ -1089,6 +1089,28 @@ func TestAcceptMR401(t *testing.T) {
 	}
 }
 
+func TestAcceptMR406(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotAcceptable)
+	}))
+	defer server.Close()
+
+	client := &http.Client{}
+	config := &Config{
+		GitLabURL:    server.URL,
+		ProjectID:    123,
+		PrivateToken: "test-token",
+	}
+
+	err := acceptMR(client, config, 42)
+	if err == nil {
+		t.Error("Expected error for 406 response")
+	}
+	if !strings.Contains(err.Error(), "unresolved discussions") {
+		t.Errorf("Expected 'unresolved discussions' in error message, got: %v", err)
+	}
+}
+
 func TestAutoMergeWithMRExistsConflict(t *testing.T) {
 	config := &Config{
 		AutoMerge: true,
