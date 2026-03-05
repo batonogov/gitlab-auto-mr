@@ -193,9 +193,18 @@ func parseFlags() *Config {
 	return config
 }
 
+func isDraftPrefix(prefix string) bool {
+	lower := strings.ToLower(strings.TrimSpace(prefix))
+	return lower == "draft" || lower == "wip"
+}
+
 func run(config *Config) error {
 	if config.AutoMerge && config.MRExists {
 		return fmt.Errorf("--auto-merge cannot be used with --mr-exists (dry run mode)")
+	}
+
+	if config.AutoMerge && isDraftPrefix(config.CommitPrefix) {
+		return fmt.Errorf("--auto-merge cannot be used with --commit-prefix %q: GitLab does not allow auto-merge for draft merge requests", config.CommitPrefix)
 	}
 
 	client := createHTTPClient(config.Insecure)

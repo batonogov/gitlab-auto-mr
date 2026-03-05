@@ -1111,6 +1111,53 @@ func TestAcceptMR406(t *testing.T) {
 	}
 }
 
+func TestIsDraftPrefix(t *testing.T) {
+	tests := []struct {
+		prefix   string
+		expected bool
+	}{
+		{"Draft", true},
+		{"draft", true},
+		{"DRAFT", true},
+		{"WIP", true},
+		{"wip", true},
+		{" Draft ", true},
+		{"", false},
+		{"Fix", false},
+		{"Feature", false},
+		{"Drafty", false},
+	}
+
+	for _, test := range tests {
+		result := isDraftPrefix(test.prefix)
+		if result != test.expected {
+			t.Errorf("isDraftPrefix(%q): expected %v, got %v", test.prefix, test.expected, result)
+		}
+	}
+}
+
+func TestAutoMergeWithDraftPrefixConflict(t *testing.T) {
+	config := &Config{
+		AutoMerge:    true,
+		CommitPrefix: "Draft",
+	}
+
+	err := run(config)
+	if err == nil {
+		t.Error("Expected error for --auto-merge with draft prefix")
+	}
+	if !strings.Contains(err.Error(), "cannot be used with --commit-prefix") {
+		t.Errorf("Expected conflict error message, got: %v", err)
+	}
+
+	// Also test with WIP prefix
+	config.CommitPrefix = "WIP"
+	err = run(config)
+	if err == nil {
+		t.Error("Expected error for --auto-merge with WIP prefix")
+	}
+}
+
 func TestAutoMergeWithMRExistsConflict(t *testing.T) {
 	config := &Config{
 		AutoMerge: true,
@@ -1156,7 +1203,7 @@ func TestRunWithAutoMerge(t *testing.T) {
 		TargetBranch:  "main",
 		UserIDs:       []int{1},
 		AutoMerge:     true,
-		CommitPrefix:  "Draft",
+		CommitPrefix:  "",
 		RemoveBranch:  false,
 		SquashCommits: false,
 	}
@@ -1201,7 +1248,7 @@ func TestRunWithAutoMergeUpdate(t *testing.T) {
 		UserIDs:      []int{1},
 		AutoMerge:    true,
 		UpdateMR:     true,
-		CommitPrefix: "Draft",
+		CommitPrefix: "",
 	}
 
 	err := run(config)
@@ -1298,7 +1345,7 @@ func TestRunWithAutoMergeExistingMRNoUpdate(t *testing.T) {
 		UserIDs:      []int{1},
 		AutoMerge:    true,
 		UpdateMR:     false,
-		CommitPrefix: "Draft",
+		CommitPrefix: "",
 	}
 
 	err := run(config)
