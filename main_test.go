@@ -1191,6 +1191,36 @@ func TestRunWithAutoMergeUpdate(t *testing.T) {
 	}
 }
 
+func TestCreateMREmptyResponseBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		// Empty body — no JSON
+	}))
+	defer server.Close()
+
+	client := &http.Client{}
+	config := &Config{
+		GitLabURL:    server.URL,
+		ProjectID:    123,
+		PrivateToken: "test-token",
+	}
+
+	mr, err := createMR(client, config, &MRCreateRequest{
+		SourceBranch: "feature/test",
+		TargetBranch: "main",
+		Title:        "Test MR",
+	})
+	if err != nil {
+		t.Errorf("Expected no error even with empty body, got %v", err)
+	}
+	if mr == nil {
+		t.Fatal("Expected non-nil MR")
+	}
+	if mr.IID != 0 {
+		t.Errorf("Expected zero IID for empty body, got %d", mr.IID)
+	}
+}
+
 func TestRunWithAutoMergeExistingMRNoUpdate(t *testing.T) {
 	autoMergeCalled := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -313,10 +313,14 @@ func run(config *Config) error {
 	}
 
 	if config.AutoMerge {
-		if err := acceptMR(client, config, mrIID); err != nil {
-			return fmt.Errorf("failed to enable auto-merge: %v", err)
+		if mrIID == 0 {
+			fmt.Println("Warning: could not determine MR IID, skipping auto-merge")
+		} else {
+			if err := acceptMR(client, config, mrIID); err != nil {
+				return fmt.Errorf("failed to enable auto-merge: %v", err)
+			}
+			fmt.Printf("Auto-merge enabled for MR (IID: %d)\n", mrIID)
 		}
-		fmt.Printf("Auto-merge enabled for MR (IID: %d)\n", mrIID)
 	}
 
 	return nil
@@ -507,7 +511,7 @@ func createMR(client *http.Client, config *Config, mrRequest *MRCreateRequest) (
 
 	var mr MergeRequest
 	if err := json.NewDecoder(resp.Body).Decode(&mr); err != nil {
-		return nil, err
+		return &mr, nil
 	}
 
 	return &mr, nil
