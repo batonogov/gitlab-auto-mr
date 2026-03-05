@@ -592,14 +592,23 @@ func TestCreateMR(t *testing.T) {
 		Description:  "Test description",
 	}
 
-	err := createMR(client, config, mrRequest)
+	mr, err := createMR(client, config, mrRequest)
 	if err != nil {
 		t.Errorf("Expected no error, got %v", err)
+	}
+	if mr == nil {
+		t.Fatal("Expected non-nil MR")
+	}
+	if mr.IID != 1 {
+		t.Errorf("Expected MR IID 1, got %d", mr.IID)
+	}
+	if mr.Title != "Test MR" {
+		t.Errorf("Expected MR title 'Test MR', got '%s'", mr.Title)
 	}
 
 	// Test failed creation
 	mrRequest.SourceBranch = ""
-	err = createMR(client, config, mrRequest)
+	_, err = createMR(client, config, mrRequest)
 	if err == nil {
 		t.Error("Expected error for invalid request")
 	}
@@ -669,6 +678,7 @@ func TestRunCreateOnly(t *testing.T) {
 			json.NewEncoder(w).Encode([]MergeRequest{})
 		case strings.HasPrefix(r.URL.Path, "/api/v4/projects/123/merge_requests") && r.Method == "POST":
 			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(MergeRequest{ID: 1, IID: 1, Title: "Test MR"})
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -993,6 +1003,234 @@ func TestRunExistingMRWithoutUpdateFlag(t *testing.T) {
 	}
 }
 
+func TestAcceptMR(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "PUT" {
+			t.Errorf("Expected PUT method, got %s", r.Method)
+		}
+		if !strings.HasSuffix(r.URL.Path, "/merge_requests/42/merge") {
+			t.Errorf("Expected path ending with /merge_requests/42/merge, got %s", r.URL.Path)
+		}
+
+		var body map[string]interface{}
+		json.NewDecoder(r.Body).Decode(&body)
+
+		if body["merge_when_pipeline_succeeds"] != true {
+			t.Error("Expected merge_when_pipeline_succeeds to be true")
+		}
+		if body["should_remove_source_branch"] != true {
+			t.Error("Expected should_remove_source_branch to be true")
+		}
+		if body["squash"] != true {
+			t.Error("Expected squash to be true")
+		}
+
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(MergeRequest{ID: 1, IID: 42})
+	}))
+	defer server.Close()
+
+	client := &http.Client{}
+	config := &Config{
+		GitLabURL:     server.URL,
+		ProjectID:     123,
+		PrivateToken:  "test-token",
+		RemoveBranch:  true,
+		SquashCommits: true,
+	}
+
+	err := acceptMR(client, config, 42)
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+}
+
+func TestAcceptMR405(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}))
+	defer server.Close()
+
+	client := &http.Client{}
+	config := &Config{
+		GitLabURL:    server.URL,
+		ProjectID:    123,
+		PrivateToken: "test-token",
+	}
+
+	err := acceptMR(client, config, 42)
+	if err == nil {
+		t.Error("Expected error for 405 response")
+	}
+	if !strings.Contains(err.Error(), "cannot be merged") {
+		t.Errorf("Expected 'cannot be merged' in error message, got: %v", err)
+	}
+}
+
+func TestAcceptMR401(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	client := &http.Client{}
+	config := &Config{
+		GitLabURL:    server.URL,
+		ProjectID:    123,
+		PrivateToken: "bad-token",
+	}
+
+	err := acceptMR(client, config, 42)
+	if err == nil {
+		t.Error("Expected error for 401 response")
+	}
+	if !strings.Contains(err.Error(), "unauthorized") {
+		t.Errorf("Expected 'unauthorized' in error message, got: %v", err)
+	}
+}
+
+func TestAutoMergeWithMRExistsConflict(t *testing.T) {
+	config := &Config{
+		AutoMerge: true,
+		MRExists:  true,
+	}
+
+	err := run(config)
+	if err == nil {
+		t.Error("Expected error for --auto-merge with --mr-exists")
+	}
+	if !strings.Contains(err.Error(), "cannot be used with --mr-exists") {
+		t.Errorf("Expected conflict error message, got: %v", err)
+	}
+}
+
+func TestRunWithAutoMerge(t *testing.T) {
+	autoMergeCalled := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/api/v4/projects/123") && r.Method == "GET" && !strings.Contains(r.URL.Path, "merge_requests"):
+			project := Project{ID: 123, Name: "test-project", DefaultBranch: "main"}
+			json.NewEncoder(w).Encode(project)
+		case strings.HasPrefix(r.URL.Path, "/api/v4/projects/123/merge_requests") && r.Method == "GET":
+			json.NewEncoder(w).Encode([]MergeRequest{})
+		case strings.HasPrefix(r.URL.Path, "/api/v4/projects/123/merge_requests") && r.Method == "POST":
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(MergeRequest{ID: 1, IID: 10, Title: "Test MR"})
+		case strings.Contains(r.URL.Path, "/merge_requests/10/merge") && r.Method == "PUT":
+			autoMergeCalled = true
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(MergeRequest{ID: 1, IID: 10})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	config := &Config{
+		GitLabURL:     server.URL,
+		ProjectID:     123,
+		PrivateToken:  "test-token",
+		SourceBranch:  "feature/test",
+		TargetBranch:  "main",
+		UserIDs:       []int{1},
+		AutoMerge:     true,
+		CommitPrefix:  "Draft",
+		RemoveBranch:  false,
+		SquashCommits: false,
+	}
+
+	err := run(config)
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+	if !autoMergeCalled {
+		t.Error("Expected auto-merge endpoint to be called")
+	}
+}
+
+func TestRunWithAutoMergeUpdate(t *testing.T) {
+	autoMergeCalled := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/api/v4/projects/123") && r.Method == "GET" && !strings.Contains(r.URL.Path, "merge_requests"):
+			project := Project{ID: 123, Name: "test-project", DefaultBranch: "main"}
+			json.NewEncoder(w).Encode(project)
+		case strings.HasPrefix(r.URL.Path, "/api/v4/projects/123/merge_requests") && r.Method == "GET":
+			mrs := []MergeRequest{{ID: 1, IID: 5, Title: "Existing MR", SourceBranch: "feature/test", TargetBranch: "main", State: "opened"}}
+			json.NewEncoder(w).Encode(mrs)
+		case r.URL.Path == "/api/v4/projects/123/merge_requests/5/merge" && r.Method == "PUT":
+			autoMergeCalled = true
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(MergeRequest{ID: 1, IID: 5})
+		case r.URL.Path == "/api/v4/projects/123/merge_requests/5" && r.Method == "PUT":
+			w.WriteHeader(http.StatusOK)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	config := &Config{
+		GitLabURL:    server.URL,
+		ProjectID:    123,
+		PrivateToken: "test-token",
+		SourceBranch: "feature/test",
+		TargetBranch: "main",
+		UserIDs:      []int{1},
+		AutoMerge:    true,
+		UpdateMR:     true,
+		CommitPrefix: "Draft",
+	}
+
+	err := run(config)
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+	if !autoMergeCalled {
+		t.Error("Expected auto-merge endpoint to be called after update")
+	}
+}
+
+func TestRunWithAutoMergeExistingMRNoUpdate(t *testing.T) {
+	autoMergeCalled := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v4/projects/123" && r.Method == "GET":
+			json.NewEncoder(w).Encode(Project{ID: 123, Name: "test-project", DefaultBranch: "main"})
+		case r.URL.Path == "/api/v4/projects/123/merge_requests" && r.Method == "GET":
+			mrs := []MergeRequest{{ID: 1, IID: 7, Title: "Existing MR", SourceBranch: "feature/test", TargetBranch: "main", State: "opened"}}
+			json.NewEncoder(w).Encode(mrs)
+		case r.URL.Path == "/api/v4/projects/123/merge_requests/7/merge" && r.Method == "PUT":
+			autoMergeCalled = true
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(MergeRequest{ID: 1, IID: 7})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	config := &Config{
+		GitLabURL:    server.URL,
+		ProjectID:    123,
+		PrivateToken: "test-token",
+		SourceBranch: "feature/test",
+		TargetBranch: "main",
+		UserIDs:      []int{1},
+		AutoMerge:    true,
+		UpdateMR:     false,
+		CommitPrefix: "Draft",
+	}
+
+	err := run(config)
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+	if !autoMergeCalled {
+		t.Error("Expected auto-merge endpoint to be called even without --update-mr")
+	}
+}
+
 func TestRunWithIssueData(t *testing.T) {
 	// Mock server that supports issue data
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1019,6 +1257,7 @@ func TestRunWithIssueData(t *testing.T) {
 			json.NewEncoder(w).Encode(issue)
 		case strings.HasPrefix(r.URL.Path, "/api/v4/projects/123/merge_requests") && r.Method == "POST":
 			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(MergeRequest{ID: 1, IID: 1, Title: "Test MR"})
 		}
 	}))
 	defer server.Close()

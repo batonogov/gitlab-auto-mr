@@ -41,6 +41,7 @@ type Config struct {
 	MRExists           bool
 	UpdateMR           bool
 	CreateOnly         bool
+	AutoMerge          bool
 }
 
 type Project struct {
@@ -94,6 +95,12 @@ type MRUpdateRequest struct {
 	Labels             []string `json:"labels,omitempty"`
 }
 
+type MRAcceptRequest struct {
+	MergeWhenPipelineSucceeds bool `json:"merge_when_pipeline_succeeds"`
+	ShouldRemoveSourceBranch  bool `json:"should_remove_source_branch"`
+	Squash                    bool `json:"squash"`
+}
+
 func main() {
 	config := parseFlags()
 
@@ -135,6 +142,7 @@ func parseFlags() *Config {
 	flag.BoolVar(&config.MRExists, "mr-exists", false, "Check if MR exists (dry run)")
 	flag.BoolVar(&config.UpdateMR, "update-mr", false, "Update existing MR instead of creating new one")
 	flag.BoolVar(&config.CreateOnly, "create-only", false, "Only create new MR, fail if MR already exists")
+	flag.BoolVar(&config.AutoMerge, "auto-merge", false, "Enable merge when pipeline succeeds (auto-merge)")
 	flag.BoolVar(&showVersion, "version", false, "Show version information and exit")
 	flag.BoolVar(&showVersion, "v", false, "Show version information and exit (short)")
 
@@ -186,6 +194,10 @@ func parseFlags() *Config {
 }
 
 func run(config *Config) error {
+	if config.AutoMerge && config.MRExists {
+		return fmt.Errorf("--auto-merge cannot be used with --mr-exists (dry run mode)")
+	}
+
 	client := createHTTPClient(config.Insecure)
 
 	// Get project info
@@ -235,14 +247,13 @@ func run(config *Config) error {
 	title := getMRTitle(config.CommitPrefix, config.Title, config.SourceBranch)
 	description := getDescriptionData(config.Description)
 
-	// If MR exists but --update-mr flag is not set, just inform and exit
+	var mrIID int
+
+	// If MR exists but --update-mr flag is not set, just inform
 	if existingMR != nil && !config.UpdateMR {
 		fmt.Printf("Merge request already exists: %s (IID: %d). Use --update-mr flag to update it.\n", existingMR.Title, existingMR.IID)
-		return nil
-	}
-
-	// Update existing MR if --update-mr flag is set
-	if existingMR != nil {
+		mrIID = existingMR.IID
+	} else if existingMR != nil {
 		// Update existing MR
 		updateRequest := &MRUpdateRequest{
 			Title:              title,
@@ -268,36 +279,46 @@ func run(config *Config) error {
 		}
 
 		fmt.Printf("Updated existing MR %s (IID: %d)\n", title, existingMR.IID)
-		return nil
-	}
-
-	// Create new MR
-	mrRequest := &MRCreateRequest{
-		SourceBranch:       config.SourceBranch,
-		TargetBranch:       config.TargetBranch,
-		Title:              title,
-		Description:        description,
-		AssigneeIDs:        config.UserIDs,
-		ReviewerIDs:        config.ReviewerIDs,
-		RemoveSourceBranch: config.RemoveBranch,
-		Squash:             config.SquashCommits,
-		AllowCollaboration: config.AllowCollaboration,
-	}
-
-	// Get issue data if requested
-	if config.UseIssueName {
-		issueData, err := getIssueData(client, config)
-		if err == nil {
-			mrRequest.MilestoneID = issueData.Milestone.ID
-			mrRequest.Labels = issueData.Labels
+		mrIID = existingMR.IID
+	} else {
+		// Create new MR
+		mrRequest := &MRCreateRequest{
+			SourceBranch:       config.SourceBranch,
+			TargetBranch:       config.TargetBranch,
+			Title:              title,
+			Description:        description,
+			AssigneeIDs:        config.UserIDs,
+			ReviewerIDs:        config.ReviewerIDs,
+			RemoveSourceBranch: config.RemoveBranch,
+			Squash:             config.SquashCommits,
+			AllowCollaboration: config.AllowCollaboration,
 		}
+
+		// Get issue data if requested
+		if config.UseIssueName {
+			issueData, err := getIssueData(client, config)
+			if err == nil {
+				mrRequest.MilestoneID = issueData.Milestone.ID
+				mrRequest.Labels = issueData.Labels
+			}
+		}
+
+		createdMR, err := createMR(client, config, mrRequest)
+		if err != nil {
+			return fmt.Errorf("failed to create MR: %v", err)
+		}
+
+		fmt.Printf("Created a new MR %s, assigned to you.\n", title)
+		mrIID = createdMR.IID
 	}
 
-	if err := createMR(client, config, mrRequest); err != nil {
-		return fmt.Errorf("failed to create MR: %v", err)
+	if config.AutoMerge {
+		if err := acceptMR(client, config, mrIID); err != nil {
+			return fmt.Errorf("failed to enable auto-merge: %v", err)
+		}
+		fmt.Printf("Auto-merge enabled for MR (IID: %d)\n", mrIID)
 	}
 
-	fmt.Printf("Created a new MR %s, assigned to you.\n", title)
 	return nil
 }
 
@@ -457,17 +478,17 @@ func getIssueData(client *http.Client, config *Config) (*Issue, error) {
 	return &issue, nil
 }
 
-func createMR(client *http.Client, config *Config, mrRequest *MRCreateRequest) error {
+func createMR(client *http.Client, config *Config, mrRequest *MRCreateRequest) (*MergeRequest, error) {
 	url := fmt.Sprintf("%s/api/v4/projects/%d/merge_requests", config.GitLabURL, config.ProjectID)
 
 	jsonData, err := json.Marshal(mrRequest)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	req.Header.Set("PRIVATE-TOKEN", config.PrivateToken)
@@ -475,16 +496,21 @@ func createMR(client *http.Client, config *Config, mrRequest *MRCreateRequest) e
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 201 {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
 	}
 
-	return nil
+	var mr MergeRequest
+	if err := json.NewDecoder(resp.Body).Decode(&mr); err != nil {
+		return nil, err
+	}
+
+	return &mr, nil
 }
 
 func updateMR(client *http.Client, config *Config, mrIID int, updateRequest *MRUpdateRequest) error {
@@ -515,6 +541,49 @@ func updateMR(client *http.Client, config *Config, mrIID int, updateRequest *MRU
 	}
 
 	return nil
+}
+
+func acceptMR(client *http.Client, config *Config, mrIID int) error {
+	url := fmt.Sprintf("%s/api/v4/projects/%d/merge_requests/%d/merge", config.GitLabURL, config.ProjectID, mrIID)
+
+	acceptRequest := &MRAcceptRequest{
+		MergeWhenPipelineSucceeds: true,
+		ShouldRemoveSourceBranch:  config.RemoveBranch,
+		Squash:                    config.SquashCommits,
+	}
+
+	jsonData, err := json.Marshal(acceptRequest)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequest("PUT", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("PRIVATE-TOKEN", config.PrivateToken)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case 200:
+		return nil
+	case 401:
+		return fmt.Errorf("unauthorized access, check your access token permissions")
+	case 405:
+		return fmt.Errorf("merge request cannot be merged, the pipeline may not have started yet or other merge conditions are not met")
+	case 406:
+		return fmt.Errorf("merge request cannot be merged, there may be unresolved discussions or other blocking conditions")
+	default:
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBody))
+	}
 }
 
 func versionInfo() string {
