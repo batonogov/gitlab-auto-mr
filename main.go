@@ -515,6 +515,10 @@ func createMR(client *http.Client, config *Config, mrRequest *MRCreateRequest) (
 
 	var mr MergeRequest
 	if err := json.NewDecoder(resp.Body).Decode(&mr); err != nil {
+		if err == io.EOF {
+			return &mr, nil
+		}
+		fmt.Printf("Warning: MR created but failed to parse response: %v\n", err)
 		return &mr, nil
 	}
 

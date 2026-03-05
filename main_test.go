@@ -1243,6 +1243,36 @@ func TestCreateMREmptyResponseBody(t *testing.T) {
 	}
 }
 
+func TestCreateMRInvalidResponseBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte("<html>Bad Gateway</html>"))
+	}))
+	defer server.Close()
+
+	client := &http.Client{}
+	config := &Config{
+		GitLabURL:    server.URL,
+		ProjectID:    123,
+		PrivateToken: "test-token",
+	}
+
+	mr, err := createMR(client, config, &MRCreateRequest{
+		SourceBranch: "feature/test",
+		TargetBranch: "main",
+		Title:        "Test MR",
+	})
+	if err != nil {
+		t.Errorf("Expected no error even with invalid JSON body, got %v", err)
+	}
+	if mr == nil {
+		t.Fatal("Expected non-nil MR")
+	}
+	if mr.IID != 0 {
+		t.Errorf("Expected zero IID for invalid body, got %d", mr.IID)
+	}
+}
+
 func TestRunWithAutoMergeExistingMRNoUpdate(t *testing.T) {
 	autoMergeCalled := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
