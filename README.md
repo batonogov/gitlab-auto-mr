@@ -155,6 +155,7 @@ create_only:
 | `--mr-exists`           |       | Only check if MR exists (dry run)              | `false`                |
 | `--update-mr`           |       | Update existing MR (required to update, fail if none exists) | `false`                |
 | `--create-only`         |       | Force create new MR (fail if already exists)   | `false`                |
+| `--auto-merge`          |       | Enable merge when pipeline succeeds (auto-merge) | `false`              |
 | `--insecure`            | `-k`  | Skip SSL certificate verification              | `false`                |
 
 ## Building
