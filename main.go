@@ -251,7 +251,11 @@ func run(config *Config) error {
 
 	// If MR exists but --update-mr flag is not set, just inform
 	if existingMR != nil && !config.UpdateMR {
-		fmt.Printf("Merge request already exists: %s (IID: %d). Use --update-mr flag to update it.\n", existingMR.Title, existingMR.IID)
+		if config.AutoMerge {
+			fmt.Printf("Merge request already exists: %s (IID: %d), enabling auto-merge.\n", existingMR.Title, existingMR.IID)
+		} else {
+			fmt.Printf("Merge request already exists: %s (IID: %d). Use --update-mr flag to update it.\n", existingMR.Title, existingMR.IID)
+		}
 		mrIID = existingMR.IID
 	} else if existingMR != nil {
 		// Update existing MR
