@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.8.1](https://github.com/batonogov/gitlab-auto-mr/compare/v1.8.0...v1.8.1) (2026-03-05)
+
+
+### Bug Fixes
+
+* reject --auto-merge with draft commit prefix ([ae97594](https://github.com/batonogov/gitlab-auto-mr/commit/ae97594b74601ac895f5b10bee98c7dd46723602))
+
+
+### Documentation
+
+* remove hardcoded versions from README ([00e23e0](https://github.com/batonogov/gitlab-auto-mr/commit/00e23e0d2459109398eea1422740bd9ef43c9f53))
+
 ## [1.8.0](https://github.com/batonogov/gitlab-auto-mr/compare/v1.7.5...v1.8.0) (2026-03-05)
 
 
