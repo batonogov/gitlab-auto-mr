@@ -264,11 +264,12 @@ func TestSmartMRManagement(t *testing.T) {
 		}
 
 		var mode string
-		if config.UpdateMR {
+		switch {
+		case config.UpdateMR:
 			mode = "update"
-		} else if config.CreateOnly {
+		case config.CreateOnly:
 			mode = "create"
-		} else {
+		default:
 			mode = "smart"
 		}
 

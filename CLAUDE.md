@@ -12,9 +12,10 @@ Go CLI tool that automatically creates and manages GitLab Merge Requests. Zero e
 task build          # Build binary with version info → ./gitlab_auto_mr
 task test           # Run tests
 task test-coverage  # Tests with coverage report → coverage.out
-task fmt            # Format code (goimports + gofmt)
-task lint           # Run golangci-lint
-task ci             # Full pipeline: deps → fmt → lint → test → build
+task fmt            # Format code (go fmt)
+task vet            # Run go vet
+task lint           # Run golangci-lint (needs golangci-lint installed)
+task ci             # Full pipeline: deps → fmt → vet → lint → test → build
 
 # Run a single test
 go test -run TestFunctionName -v ./...

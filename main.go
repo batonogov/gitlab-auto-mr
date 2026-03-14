@@ -198,144 +198,197 @@ func isDraftPrefix(prefix string) bool {
 	return lower == "draft" || lower == "wip"
 }
 
-func run(config *Config) error {
+func validateConfig(config *Config) error {
 	if config.AutoMerge && config.MRExists {
 		return fmt.Errorf("--auto-merge cannot be used with --mr-exists (dry run mode)")
 	}
 
 	if config.AutoMerge && isDraftPrefix(config.CommitPrefix) {
-		return fmt.Errorf("--auto-merge cannot be used with --commit-prefix %q: GitLab does not allow auto-merge for draft merge requests", config.CommitPrefix)
+		return fmt.Errorf(
+			"--auto-merge cannot be used with --commit-prefix %q: "+
+				"GitLab does not allow auto-merge for draft merge requests",
+			config.CommitPrefix,
+		)
+	}
+
+	return nil
+}
+
+func checkMRExists(config *Config, existingMR *MergeRequest) {
+	if existingMR == nil {
+		fmt.Printf(
+			"Merge request does not exist for this branch %s to %s, "+
+				"run without flag '--mr-exists' to open merge request.\n",
+			config.SourceBranch, config.TargetBranch)
+	} else {
+		fmt.Printf("Merge request exists: %s (IID: %d)\n",
+			existingMR.Title, existingMR.IID)
+	}
+}
+
+func run(config *Config) error {
+	if err := validateConfig(config); err != nil {
+		return err
 	}
 
 	client := createHTTPClient(config.Insecure)
 
-	// Get project info
 	project, err := getProject(client, config)
 	if err != nil {
 		return fmt.Errorf("unable to get project %d: %v", config.ProjectID, err)
 	}
 
-	// Set default target branch if not specified
 	if config.TargetBranch == "" {
 		config.TargetBranch = project.DefaultBranch
 	}
 
-	// Validate MR
 	if err := validateMR(config.SourceBranch, config.TargetBranch); err != nil {
 		return err
 	}
 
-	// Check if MR exists
 	existingMR, err := getExistingMR(client, config)
 	if err != nil {
 		return fmt.Errorf("failed to check if MR exists: %v", err)
 	}
 
 	if config.MRExists {
-		if existingMR == nil {
-			fmt.Printf("Merge request does not exist for this branch %s to %s, run without flag '--mr-exists' to open merge request.\n",
-				config.SourceBranch, config.TargetBranch)
-		} else {
-			fmt.Printf("Merge request exists: %s (IID: %d)\n", existingMR.Title, existingMR.IID)
-		}
+		checkMRExists(config, existingMR)
 		return nil
 	}
 
-	// Handle create-only mode
 	if config.CreateOnly && existingMR != nil {
-		return fmt.Errorf("merge request already exists for this branch %s to %s, cannot create new MR in create-only mode",
-			config.SourceBranch, config.TargetBranch)
+		return fmt.Errorf(
+			"merge request already exists for this branch %s to %s, "+
+				"cannot create new MR in create-only mode",
+			config.SourceBranch, config.TargetBranch,
+		)
 	}
 
-	// Handle update-only mode
 	if config.UpdateMR && existingMR == nil {
-		return fmt.Errorf("merge request does not exist for this branch %s to %s, cannot update non-existent MR",
-			config.SourceBranch, config.TargetBranch)
+		return fmt.Errorf(
+			"merge request does not exist for this branch %s to %s, "+
+				"cannot update non-existent MR",
+			config.SourceBranch, config.TargetBranch,
+		)
 	}
 
 	title := getMRTitle(config.CommitPrefix, config.Title, config.SourceBranch)
 	description := getDescriptionData(config.Description)
 
-	var mrIID int
-
-	// If MR exists but --update-mr flag is not set, just inform
-	if existingMR != nil && !config.UpdateMR {
-		if config.AutoMerge {
-			fmt.Printf("Merge request already exists: %s (IID: %d), enabling auto-merge.\n", existingMR.Title, existingMR.IID)
-		} else {
-			fmt.Printf("Merge request already exists: %s (IID: %d). Use --update-mr flag to update it.\n", existingMR.Title, existingMR.IID)
-		}
-		mrIID = existingMR.IID
-	} else if existingMR != nil {
-		// Update existing MR
-		updateRequest := &MRUpdateRequest{
-			Title:              title,
-			Description:        description,
-			AssigneeIDs:        config.UserIDs,
-			ReviewerIDs:        config.ReviewerIDs,
-			RemoveSourceBranch: config.RemoveBranch,
-			Squash:             config.SquashCommits,
-			AllowCollaboration: config.AllowCollaboration,
-		}
-
-		// Get issue data if requested
-		if config.UseIssueName {
-			issueData, err := getIssueData(client, config)
-			if err == nil {
-				updateRequest.MilestoneID = issueData.Milestone.ID
-				updateRequest.Labels = issueData.Labels
-			}
-		}
-
-		if err := updateMR(client, config, existingMR.IID, updateRequest); err != nil {
-			return fmt.Errorf("failed to update MR: %v", err)
-		}
-
-		fmt.Printf("Updated existing MR %s (IID: %d)\n", title, existingMR.IID)
-		mrIID = existingMR.IID
-	} else {
-		// Create new MR
-		mrRequest := &MRCreateRequest{
-			SourceBranch:       config.SourceBranch,
-			TargetBranch:       config.TargetBranch,
-			Title:              title,
-			Description:        description,
-			AssigneeIDs:        config.UserIDs,
-			ReviewerIDs:        config.ReviewerIDs,
-			RemoveSourceBranch: config.RemoveBranch,
-			Squash:             config.SquashCommits,
-			AllowCollaboration: config.AllowCollaboration,
-		}
-
-		// Get issue data if requested
-		if config.UseIssueName {
-			issueData, err := getIssueData(client, config)
-			if err == nil {
-				mrRequest.MilestoneID = issueData.Milestone.ID
-				mrRequest.Labels = issueData.Labels
-			}
-		}
-
-		createdMR, err := createMR(client, config, mrRequest)
-		if err != nil {
-			return fmt.Errorf("failed to create MR: %v", err)
-		}
-
-		fmt.Printf("Created a new MR %s, assigned to you.\n", title)
-		mrIID = createdMR.IID
+	mrIID, err := handleMR(client, config, existingMR, title, description)
+	if err != nil {
+		return err
 	}
 
 	if config.AutoMerge {
-		if mrIID == 0 {
-			fmt.Println("Warning: could not determine MR IID, skipping auto-merge")
+		return enableAutoMerge(client, config, mrIID)
+	}
+
+	return nil
+}
+
+func handleMR(
+	client *http.Client, config *Config,
+	existingMR *MergeRequest, title, description string,
+) (int, error) {
+	switch {
+	case existingMR != nil && !config.UpdateMR:
+		if config.AutoMerge {
+			fmt.Printf(
+				"Merge request already exists: %s (IID: %d), enabling auto-merge.\n",
+				existingMR.Title, existingMR.IID,
+			)
 		} else {
-			if err := acceptMR(client, config, mrIID); err != nil {
-				return fmt.Errorf("failed to enable auto-merge: %v", err)
-			}
-			fmt.Printf("Auto-merge enabled for MR (IID: %d)\n", mrIID)
+			fmt.Printf(
+				"Merge request already exists: %s (IID: %d). "+
+					"Use --update-mr flag to update it.\n",
+				existingMR.Title, existingMR.IID,
+			)
+		}
+		return existingMR.IID, nil
+
+	case existingMR != nil:
+		return handleUpdateMR(client, config, existingMR, title, description)
+
+	default:
+		return handleCreateMR(client, config, title, description)
+	}
+}
+
+func handleUpdateMR(
+	client *http.Client, config *Config,
+	existingMR *MergeRequest, title, description string,
+) (int, error) {
+	updateRequest := &MRUpdateRequest{
+		Title:              title,
+		Description:        description,
+		AssigneeIDs:        config.UserIDs,
+		ReviewerIDs:        config.ReviewerIDs,
+		RemoveSourceBranch: config.RemoveBranch,
+		Squash:             config.SquashCommits,
+		AllowCollaboration: config.AllowCollaboration,
+	}
+
+	if config.UseIssueName {
+		issueData, err := getIssueData(client, config)
+		if err == nil {
+			updateRequest.MilestoneID = issueData.Milestone.ID
+			updateRequest.Labels = issueData.Labels
 		}
 	}
 
+	if err := updateMR(client, config, existingMR.IID, updateRequest); err != nil {
+		return 0, fmt.Errorf("failed to update MR: %v", err)
+	}
+
+	fmt.Printf("Updated existing MR %s (IID: %d)\n", title, existingMR.IID)
+	return existingMR.IID, nil
+}
+
+func handleCreateMR(
+	client *http.Client, config *Config,
+	title, description string,
+) (int, error) {
+	mrRequest := &MRCreateRequest{
+		SourceBranch:       config.SourceBranch,
+		TargetBranch:       config.TargetBranch,
+		Title:              title,
+		Description:        description,
+		AssigneeIDs:        config.UserIDs,
+		ReviewerIDs:        config.ReviewerIDs,
+		RemoveSourceBranch: config.RemoveBranch,
+		Squash:             config.SquashCommits,
+		AllowCollaboration: config.AllowCollaboration,
+	}
+
+	if config.UseIssueName {
+		issueData, err := getIssueData(client, config)
+		if err == nil {
+			mrRequest.MilestoneID = issueData.Milestone.ID
+			mrRequest.Labels = issueData.Labels
+		}
+	}
+
+	createdMR, err := createMR(client, config, mrRequest)
+	if err != nil {
+		return 0, fmt.Errorf("failed to create MR: %v", err)
+	}
+
+	fmt.Printf("Created a new MR %s, assigned to you.\n", title)
+	return createdMR.IID, nil
+}
+
+func enableAutoMerge(client *http.Client, config *Config, mrIID int) error {
+	if mrIID == 0 {
+		fmt.Println("Warning: could not determine MR IID, skipping auto-merge")
+		return nil
+	}
+
+	if err := acceptMR(client, config, mrIID); err != nil {
+		return fmt.Errorf("failed to enable auto-merge: %v", err)
+	}
+
+	fmt.Printf("Auto-merge enabled for MR (IID: %d)\n", mrIID)
 	return nil
 }
 
@@ -346,7 +399,7 @@ func createHTTPClient(insecure bool) *http.Client {
 
 	if insecure {
 		tr := &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // user-requested via --insecure flag
 		}
 		client.Transport = tr
 	}
@@ -357,7 +410,7 @@ func createHTTPClient(insecure bool) *http.Client {
 func getProject(client *http.Client, config *Config) (*Project, error) {
 	url := fmt.Sprintf("%s/api/v4/projects/%d", config.GitLabURL, config.ProjectID)
 
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequest("GET", url, http.NoBody)
 	if err != nil {
 		return nil, err
 	}
@@ -398,7 +451,7 @@ func getExistingMR(client *http.Client, config *Config) (*MergeRequest, error) {
 	apiURL := fmt.Sprintf("%s/api/v4/projects/%d/merge_requests?state=opened&source_branch=%s&target_branch=%s",
 		config.GitLabURL, config.ProjectID, config.SourceBranch, config.TargetBranch)
 
-	req, err := http.NewRequest("GET", apiURL, nil)
+	req, err := http.NewRequest("GET", apiURL, http.NoBody)
 	if err != nil {
 		return nil, err
 	}
@@ -470,7 +523,7 @@ func getIssueData(client *http.Client, config *Config) (*Issue, error) {
 
 	url := fmt.Sprintf("%s/api/v4/projects/%d/issues/%d", config.GitLabURL, config.ProjectID, issueID)
 
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequest("GET", url, http.NoBody)
 	if err != nil {
 		return nil, err
 	}
@@ -597,7 +650,10 @@ func acceptMR(client *http.Client, config *Config, mrIID int) error {
 	case 401:
 		return fmt.Errorf("unauthorized access, check your access token permissions")
 	case 405:
-		return fmt.Errorf("merge request cannot be merged, the pipeline may not have started yet or other merge conditions are not met")
+		return fmt.Errorf(
+			"merge request cannot be merged, " +
+				"the pipeline may not have started yet or other merge conditions are not met",
+		)
 	case 406:
 		return fmt.Errorf("merge request cannot be merged, there may be unresolved discussions or other blocking conditions")
 	default:
