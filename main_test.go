@@ -264,11 +264,12 @@ func TestSmartMRManagement(t *testing.T) {
 		}
 
 		var mode string
-		if config.UpdateMR {
+		switch {
+		case config.UpdateMR:
 			mode = "update"
-		} else if config.CreateOnly {
+		case config.CreateOnly:
 			mode = "create"
-		} else {
+		default:
 			mode = "smart"
 		}
 
@@ -282,7 +283,7 @@ func TestCreateHTTPClient(t *testing.T) {
 	// Test secure client
 	client := createHTTPClient(false)
 	if client == nil {
-		t.Error("Expected non-nil client")
+		t.Fatal("Expected non-nil client")
 	}
 	if client.Timeout != 30*time.Second {
 		t.Errorf("Expected timeout 30s, got %v", client.Timeout)
@@ -291,7 +292,7 @@ func TestCreateHTTPClient(t *testing.T) {
 	// Test insecure client
 	insecureClient := createHTTPClient(true)
 	if insecureClient == nil {
-		t.Error("Expected non-nil insecure client")
+		t.Fatal("Expected non-nil insecure client")
 	}
 	if insecureClient.Timeout != 30*time.Second {
 		t.Errorf("Expected timeout 30s, got %v", insecureClient.Timeout)
