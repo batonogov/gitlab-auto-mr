@@ -47,7 +47,6 @@ linters:
           - goconst
           - gocyclo
           - lll
-          - staticcheck
         path: _test\.go
     paths:
       - third_party$

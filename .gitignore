@@ -39,6 +39,9 @@ Thumbs.db
 docker-compose.yml
 docker-compose.override.yml
 
+# Backup files
+*.bck.*
+
 # Python legacy (can be removed when fully migrated)
 .venv/
 __pycache__/

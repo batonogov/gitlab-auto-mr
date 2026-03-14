@@ -655,7 +655,10 @@ func acceptMR(client *http.Client, config *Config, mrIID int) error {
 				"the pipeline may not have started yet or other merge conditions are not met",
 		)
 	case 406:
-		return fmt.Errorf("merge request cannot be merged, there may be unresolved discussions or other blocking conditions")
+		return fmt.Errorf(
+			"merge request cannot be merged, " +
+				"there may be unresolved discussions or other blocking conditions",
+		)
 	default:
 		respBody, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBody))
