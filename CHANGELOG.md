@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.8.2](https://github.com/batonogov/gitlab-auto-mr/compare/v1.8.1...v1.8.2) (2026-03-14)
+
+
+### Bug Fixes
+
+* address review feedback on lint config and code style ([55fa356](https://github.com/batonogov/gitlab-auto-mr/commit/55fa35664303a86610188c4ffefd54e478bcd514))
+
+
+### Maintenance
+
+* **deps:** bump golang in the docker-dependencies group ([690fb66](https://github.com/batonogov/gitlab-auto-mr/commit/690fb6604c67523ea165a4f2527444fb0af7d543))
+* **deps:** bump the github-actions group with 5 updates ([8b10149](https://github.com/batonogov/gitlab-auto-mr/commit/8b10149ef7c4829b1ae3398c25321ec296ae49f9))
+* migrate golangci-lint config to v2 and fix all lint issues ([e5bf749](https://github.com/batonogov/gitlab-auto-mr/commit/e5bf749e4b4472e0ffa7f36e044545e3bea10be0))
+* migrate golangci-lint config to v2 and fix lint issues ([d1f52ce](https://github.com/batonogov/gitlab-auto-mr/commit/d1f52ce90c2e3cb0a6bb487990d158c11be4b1fc))
+
 ## [1.8.1](https://github.com/batonogov/gitlab-auto-mr/compare/v1.8.0...v1.8.1) (2026-03-05)
 
 
