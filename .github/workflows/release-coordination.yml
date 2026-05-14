@@ -149,7 +149,7 @@ jobs:
 
       - name: 💬 Add Release Preview Comment
         if: steps.check.outputs.should-release == 'true'
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const { data: comments } = await github.rest.issues.listComments({
@@ -274,7 +274,7 @@ jobs:
           fi
 
       - name: 🔗 Add Workflow Links Comment
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const body = `## ✅ Merged Successfully
