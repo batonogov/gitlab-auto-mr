@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.8.3](https://github.com/batonogov/gitlab-auto-mr/compare/v1.8.2...v1.8.3) (2026-05-18)
+
+
+### Maintenance
+
+* **deps:** bump golang in the docker-dependencies group ([#101](https://github.com/batonogov/gitlab-auto-mr/issues/101)) ([7a0c458](https://github.com/batonogov/gitlab-auto-mr/commit/7a0c458d656825c3a5b29201e5d62ea515f4e0d6))
+* **deps:** bump sigstore/cosign-installer in the github-actions group ([#102](https://github.com/batonogov/gitlab-auto-mr/issues/102)) ([8358934](https://github.com/batonogov/gitlab-auto-mr/commit/8358934735581640b1acc5395468986c2551e614))
+* **deps:** bump the docker-dependencies group across 1 directory with 2 updates ([b47a636](https://github.com/batonogov/gitlab-auto-mr/commit/b47a636c25de791e50fc3af5f72e4d7cfeac5ead))
+* **deps:** bump the github-actions group across 1 directory with 3 updates ([2e28d1b](https://github.com/batonogov/gitlab-auto-mr/commit/2e28d1b95a40b0700b2a408a314cfbc988dfa134))
+
 ## [1.8.2](https://github.com/batonogov/gitlab-auto-mr/compare/v1.8.1...v1.8.2) (2026-03-14)
 
 
