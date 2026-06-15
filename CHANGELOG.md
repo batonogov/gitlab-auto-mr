@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.4](https://github.com/batonogov/gitlab-auto-mr/compare/v1.8.3...v1.8.4) (2026-06-15)
+
+
+### Maintenance
+
+* **deps:** bump the docker-dependencies group across 1 directory with 2 updates ([#104](https://github.com/batonogov/gitlab-auto-mr/issues/104)) ([20b49b3](https://github.com/batonogov/gitlab-auto-mr/commit/20b49b3ed44566046b27c20dc9f01659a2c6f54f))
+
 ## [1.8.3](https://github.com/batonogov/gitlab-auto-mr/compare/v1.8.2...v1.8.3) (2026-05-18)
 
 
