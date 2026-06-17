@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -22,6 +23,11 @@ var (
 	GitCommit = "none"
 	BuildDate = "unknown"
 )
+
+// errShowVersion is a sentinel error returned by parseFlags when --version has
+// been handled (version printed to stdout). Callers should treat it as a clean
+// exit with status 0 rather than a real error.
+var errShowVersion = errors.New("version shown")
 
 type Config struct {
 	PrivateToken       string
@@ -103,7 +109,14 @@ type MRAcceptRequest struct {
 }
 
 func main() {
-	config := parseFlags()
+	config, err := parseFlags()
+	if err != nil {
+		if errors.Is(err, errShowVersion) {
+			os.Exit(0)
+		}
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
 
 	if err := run(config); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -111,7 +124,7 @@ func main() {
 	}
 }
 
-func parseFlags() *Config {
+func parseFlags() (*Config, error) {
 	config := &Config{}
 
 	var userIDsStr, reviewerIDsStr string
@@ -151,29 +164,24 @@ func parseFlags() *Config {
 
 	if showVersion {
 		fmt.Println(versionInfo())
-		os.Exit(0)
+		return nil, errShowVersion
 	}
 
 	// Validate required fields
 	if config.PrivateToken == "" {
-		fmt.Fprintf(os.Stderr, "Error: --private-token is required\n")
-		os.Exit(1)
+		return nil, fmt.Errorf("--private-token is required")
 	}
 	if config.SourceBranch == "" {
-		fmt.Fprintf(os.Stderr, "Error: --source-branch is required\n")
-		os.Exit(1)
+		return nil, fmt.Errorf("--source-branch is required")
 	}
 	if config.ProjectID == 0 {
-		fmt.Fprintf(os.Stderr, "Error: --project-id is required\n")
-		os.Exit(1)
+		return nil, fmt.Errorf("--project-id is required")
 	}
 	if config.GitLabURL == "" {
-		fmt.Fprintf(os.Stderr, "Error: --gitlab-url is required\n")
-		os.Exit(1)
+		return nil, fmt.Errorf("--gitlab-url is required")
 	}
 	if userIDsStr == "" {
-		fmt.Fprintf(os.Stderr, "Error: --user-id is required\n")
-		os.Exit(1)
+		return nil, fmt.Errorf("--user-id is required")
 	}
 
 	// Parse user IDs
@@ -191,7 +199,7 @@ func parseFlags() *Config {
 		}
 	}
 
-	return config
+	return config, nil
 }
 
 func isDraftPrefix(prefix string) bool {
