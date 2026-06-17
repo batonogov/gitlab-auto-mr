@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -1521,5 +1522,81 @@ func TestRunWithIssueData(t *testing.T) {
 	err := run(config)
 	if err != nil {
 		t.Errorf("Expected no error for run with issue data, got %v", err)
+	}
+}
+
+// TestRunWithIssueDataError verifies that when --use-issue-name is set but the
+// issue lookup fails (HTTP 404), a warning is printed to stderr and the MR is
+// still created without issue data (backward-compatible, control flow unchanged).
+func TestRunWithIssueDataError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/api/v4/projects/123") && r.Method == "GET" &&
+			!strings.Contains(r.URL.Path, "merge_requests") && !strings.Contains(r.URL.Path, "issues"):
+			json.NewEncoder(w).Encode(Project{
+				ID:            123,
+				Name:          "test-project",
+				DefaultBranch: "main",
+			})
+		case strings.HasPrefix(r.URL.Path, "/api/v4/projects/123/merge_requests") && r.Method == "GET":
+			json.NewEncoder(w).Encode([]MergeRequest{})
+		case strings.HasPrefix(r.URL.Path, "/api/v4/projects/123/issues/789") && r.Method == "GET":
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]string{"message": "404 Not Found"})
+		case strings.HasPrefix(r.URL.Path, "/api/v4/projects/123/merge_requests") && r.Method == "POST":
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(MergeRequest{ID: 1, IID: 1, Title: "Test MR"})
+		}
+	}))
+	defer server.Close()
+
+	config := &Config{
+		GitLabURL:     server.URL,
+		ProjectID:     123,
+		PrivateToken:  "test-token",
+		SourceBranch:  "feature/fix-#789",
+		TargetBranch:  "main",
+		UserIDs:       []int{1},
+		UseIssueName:  true,
+		CommitPrefix:  "Fix",
+		RemoveBranch:  false,
+		SquashCommits: false,
+	}
+
+	// Capture os.Stderr to assert the warning is emitted there (not stdout).
+	rPipe, wPipe, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("Failed to create pipe: %v", err)
+	}
+	origStderr := os.Stderr
+	os.Stderr = wPipe
+
+	t.Cleanup(func() {
+		os.Stderr = origStderr
+	})
+
+	runErr := run(config)
+
+	if cerr := wPipe.Close(); cerr != nil {
+		t.Fatalf("Failed to close stderr pipe: %v", cerr)
+	}
+
+	stderrBytes, err := io.ReadAll(rPipe)
+	if err != nil {
+		t.Fatalf("Failed to read captured stderr: %v", err)
+	}
+	stderrOutput := string(stderrBytes)
+
+	// The MR must still be created despite the issue lookup failure.
+	if runErr != nil {
+		t.Errorf("Expected run to succeed even when issue data fetch fails, got error: %v", runErr)
+	}
+
+	// The failure must be surfaced as a warning on stderr.
+	if !strings.Contains(stderrOutput, "Warning: failed to fetch issue data") {
+		t.Errorf("Expected warning about failed issue data fetch on stderr, got: %q", stderrOutput)
+	}
+	if !strings.Contains(stderrOutput, "issue #789 not found") {
+		t.Errorf("Expected underlying error 'issue #789 not found' in warning, got: %q", stderrOutput)
 	}
 }

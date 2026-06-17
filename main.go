@@ -332,7 +332,9 @@ func handleUpdateMR(
 
 	if config.UseIssueName {
 		issueData, err := getIssueData(client, config)
-		if err == nil {
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to fetch issue data: %v\n", err)
+		} else {
 			updateRequest.MilestoneID = issueData.Milestone.ID
 			updateRequest.Labels = issueData.Labels
 		}
@@ -364,7 +366,9 @@ func handleCreateMR(
 
 	if config.UseIssueName {
 		issueData, err := getIssueData(client, config)
-		if err == nil {
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to fetch issue data: %v\n", err)
+		} else {
 			mrRequest.MilestoneID = issueData.Milestone.ID
 			mrRequest.Labels = issueData.Labels
 		}
