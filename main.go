@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
 	"strconv"
@@ -448,8 +449,13 @@ func validateMR(sourceBranch, targetBranch string) error {
 }
 
 func getExistingMR(client *http.Client, config *Config) (*MergeRequest, error) {
-	apiURL := fmt.Sprintf("%s/api/v4/projects/%d/merge_requests?state=opened&source_branch=%s&target_branch=%s",
-		config.GitLabURL, config.ProjectID, config.SourceBranch, config.TargetBranch)
+	params := url.Values{}
+	params.Set("state", "opened")
+	params.Set("source_branch", config.SourceBranch)
+	params.Set("target_branch", config.TargetBranch)
+	params.Set("per_page", "1")
+	apiURL := fmt.Sprintf("%s/api/v4/projects/%d/merge_requests?%s",
+		config.GitLabURL, config.ProjectID, params.Encode())
 
 	req, err := http.NewRequest("GET", apiURL, http.NoBody)
 	if err != nil {
