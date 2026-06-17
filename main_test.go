@@ -188,8 +188,8 @@ func TestMRUpdateRequest(t *testing.T) {
 		Description:        "Updated Description",
 		AssigneeIDs:        []int{123, 456},
 		ReviewerIDs:        []int{789},
-		RemoveSourceBranch: true,
-		Squash:             true,
+		RemoveSourceBranch: boolPtr(true),
+		Squash:             boolPtr(true),
 		AllowCollaboration: false,
 		MilestoneID:        999,
 		Labels:             []string{"bug", "urgent"},
@@ -209,6 +209,53 @@ func TestMRUpdateRequest(t *testing.T) {
 	}
 	if len(updateReq.Labels) != 2 {
 		t.Errorf("Expected 2 labels, got %d", len(updateReq.Labels))
+	}
+
+	// Pointer bool fields must be explicitly serialized, even when false,
+	// so that --update-mr can turn squash / remove-source-branch OFF.
+	// See issue #66: omitempty on bool previously dropped false values.
+	cases := []struct {
+		name     string
+		remove   bool
+		squash   bool
+		wantRm   string
+		wantSq   string
+		wantNull bool
+	}{
+		{name: "true", remove: true, squash: true, wantRm: `"remove_source_branch":true`, wantSq: `"squash":true`},
+		{name: "false", remove: false, squash: false, wantRm: `"remove_source_branch":false`, wantSq: `"squash":false`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := MRUpdateRequest{
+				RemoveSourceBranch: boolPtr(tc.remove),
+				Squash:             boolPtr(tc.squash),
+			}
+			data, err := json.Marshal(req)
+			if err != nil {
+				t.Fatalf("unexpected marshal error: %v", err)
+			}
+			body := string(data)
+			if !strings.Contains(body, tc.wantRm) {
+				t.Errorf("%s: expected JSON to contain %s, got %s", tc.name, tc.wantRm, body)
+			}
+			if !strings.Contains(body, tc.wantSq) {
+				t.Errorf("%s: expected JSON to contain %s, got %s", tc.name, tc.wantSq, body)
+			}
+		})
+	}
+
+	// nil pointer means "don't send" and must be omitted.
+	nilReq := MRUpdateRequest{}
+	nilData, err := json.Marshal(nilReq)
+	if err != nil {
+		t.Fatalf("unexpected marshal error: %v", err)
+	}
+	if strings.Contains(string(nilData), "remove_source_branch") {
+		t.Errorf("nil pointer should be omitted, got %s", string(nilData))
+	}
+	if strings.Contains(string(nilData), "squash") {
+		t.Errorf("nil pointer should be omitted, got %s", string(nilData))
 	}
 }
 

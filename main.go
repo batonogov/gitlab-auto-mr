@@ -89,8 +89,8 @@ type MRUpdateRequest struct {
 	Description        string   `json:"description,omitempty"`
 	AssigneeIDs        []int    `json:"assignee_ids,omitempty"`
 	ReviewerIDs        []int    `json:"reviewer_ids,omitempty"`
-	RemoveSourceBranch bool     `json:"remove_source_branch,omitempty"`
-	Squash             bool     `json:"squash,omitempty"`
+	RemoveSourceBranch *bool    `json:"remove_source_branch,omitempty"`
+	Squash             *bool    `json:"squash,omitempty"`
 	AllowCollaboration bool     `json:"allow_collaboration,omitempty"`
 	MilestoneID        int      `json:"milestone_id,omitempty"`
 	Labels             []string `json:"labels,omitempty"`
@@ -325,8 +325,8 @@ func handleUpdateMR(
 		Description:        description,
 		AssigneeIDs:        config.UserIDs,
 		ReviewerIDs:        config.ReviewerIDs,
-		RemoveSourceBranch: config.RemoveBranch,
-		Squash:             config.SquashCommits,
+		RemoveSourceBranch: boolPtr(config.RemoveBranch),
+		Squash:             boolPtr(config.SquashCommits),
 		AllowCollaboration: config.AllowCollaboration,
 	}
 
@@ -689,6 +689,10 @@ func getEnvInt(key string, defaultValue int) int {
 		}
 	}
 	return defaultValue
+}
+
+func boolPtr(b bool) *bool {
+	return &b
 }
 
 func parseIntSlice(s string) []int {
