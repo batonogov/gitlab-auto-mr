@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
+	"flag"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -1598,5 +1600,212 @@ func TestRunWithIssueDataError(t *testing.T) {
 	}
 	if !strings.Contains(stderrOutput, "issue #789 not found") {
 		t.Errorf("Expected underlying error 'issue #789 not found' in warning, got: %q", stderrOutput)
+	}
+}
+
+// resetFlagSet replaces the package-level flag.CommandLine with a fresh FlagSet
+// using ContinueOnError. parseFlags re-registers every flag on flag.CommandLine,
+// so without a reset the second subtest would panic with "flag redefined".
+// ContinueOnError also prevents a parse error from os.Exit-ing the test binary.
+// The original FlagSet is restored on cleanup so other tests are unaffected.
+func resetFlagSet(t *testing.T) {
+	t.Helper()
+	saved := flag.CommandLine
+	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+	t.Cleanup(func() { flag.CommandLine = saved })
+}
+
+// clearRequiredParseEnv clears the five env vars that parseFlags reads as flag
+// defaults. getEnv/getEnvInt treat an empty value identically to an unset
+// variable (both yield the default), so setting each to "" reliably clears it.
+// t.Setenv restores the previous value on cleanup automatically.
+func clearRequiredParseEnv(t *testing.T) {
+	t.Helper()
+	for _, key := range []string{
+		"GITLAB_PRIVATE_TOKEN",
+		"CI_COMMIT_REF_NAME",
+		"CI_PROJECT_ID",
+		"CI_PROJECT_URL",
+		"GITLAB_USER_ID",
+	} {
+		t.Setenv(key, "")
+	}
+}
+
+// setRequiredParseEnv sets all five required env vars to known-good values.
+func setRequiredParseEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("GITLAB_PRIVATE_TOKEN", "tok")
+	t.Setenv("CI_COMMIT_REF_NAME", "feat/x")
+	t.Setenv("CI_PROJECT_ID", "42")
+	t.Setenv("CI_PROJECT_URL", "https://gl.example.com/group/proj")
+	t.Setenv("GITLAB_USER_ID", "7")
+}
+
+// setParseArgs temporarily replaces os.Args so parseFlags parses the given args.
+func setParseArgs(t *testing.T, args []string) {
+	t.Helper()
+	saved := os.Args
+	os.Args = args
+	t.Cleanup(func() { os.Args = saved })
+}
+
+// captureStdout redirects os.Stdout to a discarded pipe for the test lifetime
+// so versionInfo() output does not pollute `go test -v` output.
+func captureStdout(t *testing.T) {
+	t.Helper()
+	orig := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	os.Stdout = w
+	t.Cleanup(func() {
+		os.Stdout = orig
+		if cerr := w.Close(); cerr != nil {
+			t.Logf("close pipe writer: %v", cerr)
+		}
+		if _, err := io.Copy(io.Discard, r); err != nil {
+			t.Logf("drain pipe reader: %v", err)
+		}
+		if cerr := r.Close(); cerr != nil {
+			t.Logf("close pipe reader: %v", cerr)
+		}
+	})
+}
+
+// TestParseFlags covers parseFlags end-to-end, exercising every validation
+// branch, the --version sentinel path, and the success path. See issue #68:
+// parseFlags previously called os.Exit directly and was untestable.
+func TestParseFlags(t *testing.T) {
+	cases := []struct {
+		name        string
+		args        []string
+		setup       func(t *testing.T)
+		wantErr     bool
+		sentinel    bool
+		errSubstr   string
+		checkConfig func(t *testing.T, c *Config)
+	}{
+		{
+			name:      "missing-private-token",
+			args:      []string{"prog"},
+			setup:     func(t *testing.T) {},
+			wantErr:   true,
+			errSubstr: "--private-token is required",
+		},
+		{
+			name: "missing-source-branch",
+			args: []string{"prog"},
+			setup: func(t *testing.T) {
+				t.Setenv("GITLAB_PRIVATE_TOKEN", "tok")
+			},
+			wantErr:   true,
+			errSubstr: "--source-branch is required",
+		},
+		{
+			name: "missing-project-id",
+			args: []string{"prog"},
+			setup: func(t *testing.T) {
+				t.Setenv("GITLAB_PRIVATE_TOKEN", "tok")
+				t.Setenv("CI_COMMIT_REF_NAME", "feat/x")
+			},
+			wantErr:   true,
+			errSubstr: "--project-id is required",
+		},
+		{
+			name: "missing-gitlab-url",
+			args: []string{"prog"},
+			setup: func(t *testing.T) {
+				t.Setenv("GITLAB_PRIVATE_TOKEN", "tok")
+				t.Setenv("CI_COMMIT_REF_NAME", "feat/x")
+				t.Setenv("CI_PROJECT_ID", "42")
+			},
+			wantErr:   true,
+			errSubstr: "--gitlab-url is required",
+		},
+		{
+			name: "missing-user-id",
+			args: []string{"prog"},
+			setup: func(t *testing.T) {
+				t.Setenv("GITLAB_PRIVATE_TOKEN", "tok")
+				t.Setenv("CI_COMMIT_REF_NAME", "feat/x")
+				t.Setenv("CI_PROJECT_ID", "42")
+				t.Setenv("CI_PROJECT_URL", "https://gl.example.com/group/proj")
+			},
+			wantErr:   true,
+			errSubstr: "--user-id is required",
+		},
+		{
+			name:     "version",
+			args:     []string{"prog", "--version"},
+			setup:    setRequiredParseEnv,
+			wantErr:  true,
+			sentinel: true,
+		},
+		{
+			name:  "success",
+			args:  []string{"prog"},
+			setup: setRequiredParseEnv,
+			checkConfig: func(t *testing.T, c *Config) {
+				t.Helper()
+				if c == nil {
+					t.Fatal("expected non-nil config")
+				}
+				if c.ProjectID != 42 {
+					t.Errorf("ProjectID = %d, want 42", c.ProjectID)
+				}
+				if c.SourceBranch != "feat/x" {
+					t.Errorf("SourceBranch = %q, want %q", c.SourceBranch, "feat/x")
+				}
+				if len(c.UserIDs) != 1 || c.UserIDs[0] != 7 {
+					t.Errorf("UserIDs = %v, want [7]", c.UserIDs)
+				}
+				if c.GitLabURL == "" {
+					t.Error("GitLabURL should be non-empty")
+				}
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			clearRequiredParseEnv(t)
+			resetFlagSet(t)
+			setParseArgs(t, tc.args)
+			tc.setup(t)
+			if tc.sentinel {
+				captureStdout(t)
+			}
+
+			cfg, err := parseFlags()
+
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got nil (config=%+v)", cfg)
+				}
+				if tc.sentinel {
+					if !errors.Is(err, errShowVersion) {
+						t.Errorf("expected errShowVersion, got %v", err)
+					}
+					return
+				}
+				if errors.Is(err, errShowVersion) {
+					t.Errorf("expected non-sentinel error, got errShowVersion")
+					return
+				}
+				if !strings.Contains(err.Error(), tc.errSubstr) {
+					t.Errorf("error %q does not contain %q", err.Error(), tc.errSubstr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("expected success, got error: %v", err)
+			}
+			if tc.checkConfig != nil {
+				tc.checkConfig(t, cfg)
+			}
+		})
 	}
 }
