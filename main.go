@@ -24,6 +24,13 @@ var (
 	BuildDate = "unknown"
 )
 
+// draftPrefix is the lowercase title prefix marking an MR as a draft.
+// Shared by isDraftPrefix so the literals are not duplicated (goconst).
+const (
+	draftPrefix = "draft"
+	wipPrefix   = "wip"
+)
+
 // errShowVersion is a sentinel error returned by parseFlags when --version has
 // been handled (version printed to stdout). Callers should treat it as a clean
 // exit with status 0 rather than a real error.
@@ -204,7 +211,7 @@ func parseFlags() (*Config, error) {
 
 func isDraftPrefix(prefix string) bool {
 	lower := strings.ToLower(strings.TrimSpace(prefix))
-	return lower == "draft" || lower == "wip"
+	return lower == draftPrefix || lower == wipPrefix
 }
 
 func validateConfig(config *Config) error {
@@ -421,9 +428,9 @@ func createHTTPClient(insecure bool) *http.Client {
 }
 
 func getProject(client *http.Client, config *Config) (*Project, error) {
-	url := fmt.Sprintf("%s/api/v4/projects/%d", config.GitLabURL, config.ProjectID)
+	apiURL := fmt.Sprintf("%s/api/v4/projects/%d", config.GitLabURL, config.ProjectID)
 
-	req, err := http.NewRequest("GET", url, http.NoBody)
+	req, err := http.NewRequest("GET", apiURL, http.NoBody)
 	if err != nil {
 		return nil, err
 	}
@@ -539,9 +546,9 @@ func getIssueData(client *http.Client, config *Config) (*Issue, error) {
 		return nil, fmt.Errorf("invalid issue number: %s", matches[1])
 	}
 
-	url := fmt.Sprintf("%s/api/v4/projects/%d/issues/%d", config.GitLabURL, config.ProjectID, issueID)
+	apiURL := fmt.Sprintf("%s/api/v4/projects/%d/issues/%d", config.GitLabURL, config.ProjectID, issueID)
 
-	req, err := http.NewRequest("GET", url, http.NoBody)
+	req, err := http.NewRequest("GET", apiURL, http.NoBody)
 	if err != nil {
 		return nil, err
 	}
@@ -567,14 +574,14 @@ func getIssueData(client *http.Client, config *Config) (*Issue, error) {
 }
 
 func createMR(client *http.Client, config *Config, mrRequest *MRCreateRequest) (*MergeRequest, error) {
-	url := fmt.Sprintf("%s/api/v4/projects/%d/merge_requests", config.GitLabURL, config.ProjectID)
+	apiURL := fmt.Sprintf("%s/api/v4/projects/%d/merge_requests", config.GitLabURL, config.ProjectID)
 
 	jsonData, err := json.Marshal(mrRequest)
 	if err != nil {
 		return nil, err
 	}
 
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, err
 	}
@@ -605,14 +612,14 @@ func createMR(client *http.Client, config *Config, mrRequest *MRCreateRequest) (
 }
 
 func updateMR(client *http.Client, config *Config, mrIID int, updateRequest *MRUpdateRequest) error {
-	url := fmt.Sprintf("%s/api/v4/projects/%d/merge_requests/%d", config.GitLabURL, config.ProjectID, mrIID)
+	apiURL := fmt.Sprintf("%s/api/v4/projects/%d/merge_requests/%d", config.GitLabURL, config.ProjectID, mrIID)
 
 	jsonData, err := json.Marshal(updateRequest)
 	if err != nil {
 		return err
 	}
 
-	req, err := http.NewRequest("PUT", url, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest("PUT", apiURL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return err
 	}
@@ -635,7 +642,7 @@ func updateMR(client *http.Client, config *Config, mrIID int, updateRequest *MRU
 }
 
 func acceptMR(client *http.Client, config *Config, mrIID int) error {
-	url := fmt.Sprintf("%s/api/v4/projects/%d/merge_requests/%d/merge", config.GitLabURL, config.ProjectID, mrIID)
+	apiURL := fmt.Sprintf("%s/api/v4/projects/%d/merge_requests/%d/merge", config.GitLabURL, config.ProjectID, mrIID)
 
 	acceptRequest := &MRAcceptRequest{
 		MergeWhenPipelineSucceeds: true,
@@ -648,7 +655,7 @@ func acceptMR(client *http.Client, config *Config, mrIID int) error {
 		return err
 	}
 
-	req, err := http.NewRequest("PUT", url, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest("PUT", apiURL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return err
 	}
