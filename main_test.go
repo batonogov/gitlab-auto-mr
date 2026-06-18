@@ -483,6 +483,75 @@ func TestGetExistingMRServerSideFiltering(t *testing.T) {
 	}
 }
 
+func TestGetExistingMRSpecialChars(t *testing.T) {
+	// Branch names containing special chars (+, #, &, spaces) must be URL-encoded
+	// so the server decodes them back to the exact original values, and per_page=1
+	// must be present (issue #65 + #70).
+	const (
+		sourceBranch = "feature/fix-#123 & x+more"
+		targetBranch = "release/v1.0 #2"
+	)
+
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+
+		query := r.URL.Query()
+
+		// per_page=1 must be requested explicitly
+		if got := query.Get("per_page"); got != "1" {
+			t.Errorf("Expected per_page=1, got %q", got)
+		}
+
+		// Decoded branch values must match the originals exactly
+		if got := query.Get("source_branch"); got != sourceBranch {
+			t.Errorf("Expected source_branch %q, got %q", sourceBranch, got)
+		}
+		if got := query.Get("target_branch"); got != targetBranch {
+			t.Errorf("Expected target_branch %q, got %q", targetBranch, got)
+		}
+
+		mrs := []MergeRequest{
+			{
+				ID:           7,
+				IID:          7,
+				Title:        "Special chars MR",
+				SourceBranch: sourceBranch,
+				TargetBranch: targetBranch,
+				State:        "opened",
+			},
+		}
+		json.NewEncoder(w).Encode(mrs)
+	}))
+	defer server.Close()
+
+	client := &http.Client{}
+	config := &Config{
+		GitLabURL:    server.URL,
+		ProjectID:    123,
+		PrivateToken: "test-token",
+		SourceBranch: sourceBranch,
+		TargetBranch: targetBranch,
+	}
+
+	mr, err := getExistingMR(client, config)
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+	if mr == nil {
+		t.Fatal("Expected to find MR, got nil")
+	}
+	if mr.IID != 7 {
+		t.Errorf("Expected MR IID 7, got %d", mr.IID)
+	}
+	if mr.SourceBranch != sourceBranch {
+		t.Errorf("Expected MR source branch %q, got %q", sourceBranch, mr.SourceBranch)
+	}
+	if requestCount != 1 {
+		t.Errorf("Expected exactly 1 API request, got %d", requestCount)
+	}
+}
+
 func TestGetIssueData(t *testing.T) {
 	// Mock server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
