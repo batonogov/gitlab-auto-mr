@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.8.5](https://github.com/batonogov/gitlab-auto-mr/compare/v1.8.4...v1.8.5) (2026-06-29)
+
+
+### Bug Fixes
+
+* allow unsetting Squash/RemoveSourceBranch via --update-mr ([#66](https://github.com/batonogov/gitlab-auto-mr/issues/66)) ([b4b8a12](https://github.com/batonogov/gitlab-auto-mr/commit/b4b8a12d5e44b84d7e0ee416ac8f8ecc82024c0c))
+* URL-encode branch names and add per_page=1 in getExistingMR ([#65](https://github.com/batonogov/gitlab-auto-mr/issues/65), [#70](https://github.com/batonogov/gitlab-auto-mr/issues/70)) ([76330c7](https://github.com/batonogov/gitlab-auto-mr/commit/76330c7b6076c02c3c8c116233306c340096793c))
+* warn on getIssueData failure with --use-issue-name ([#67](https://github.com/batonogov/gitlab-auto-mr/issues/67)) ([e4077ae](https://github.com/batonogov/gitlab-auto-mr/commit/e4077ae15825573bac906258b575640d5089ac63))
+
+
+### Maintenance
+
+* **deps:** bump actions/cache from 5 to 6 in the github-actions group ([#132](https://github.com/batonogov/gitlab-auto-mr/issues/132)) ([85f43de](https://github.com/batonogov/gitlab-auto-mr/commit/85f43dee1c99ce6c937ff1f05bee4b1e00017eb7))
+* **deps:** bump actions/checkout in the github-actions group ([#131](https://github.com/batonogov/gitlab-auto-mr/issues/131)) ([4fccd5d](https://github.com/batonogov/gitlab-auto-mr/commit/4fccd5db01403dc33eb9fc47cb0c6e92d098d080))
+* **deps:** bump alpine in the docker-dependencies group ([#130](https://github.com/batonogov/gitlab-auto-mr/issues/130)) ([3108555](https://github.com/batonogov/gitlab-auto-mr/commit/31085554353a9de7d548e3130cc6e7bd5386b38a))
+* fix lint findings (goconst, importShadow) ([1b3bbab](https://github.com/batonogov/gitlab-auto-mr/commit/1b3bbabeec92e74c0664031556a76da17391f58f))
+* remove Python legacy .gitignore entries ([#111](https://github.com/batonogov/gitlab-auto-mr/issues/111)) ([4b88ca9](https://github.com/batonogov/gitlab-auto-mr/commit/4b88ca9aaf258dc50229cb78833bfd0ea03cbd7c))
+
+
+### Code Refactoring
+
+* make parseFlags testable by returning an error ([#68](https://github.com/batonogov/gitlab-auto-mr/issues/68)) ([da235f3](https://github.com/batonogov/gitlab-auto-mr/commit/da235f398af9a7ef6633fbf8f873aeeb073aa763))
+
+
+### Continuous Integration
+
+* remove auto-pr workflow ([#117](https://github.com/batonogov/gitlab-auto-mr/issues/117)) ([a19c5b0](https://github.com/batonogov/gitlab-auto-mr/commit/a19c5b01684e2f89a55466497dba4c083d8184fb))
+* run CI on all PRs and fix greetings action inputs ([#118](https://github.com/batonogov/gitlab-auto-mr/issues/118)) ([93a39c9](https://github.com/batonogov/gitlab-auto-mr/commit/93a39c96fe293956cfecee8cb873c38a8df03e9d))
+
 ## [1.8.4](https://github.com/batonogov/gitlab-auto-mr/compare/v1.8.3...v1.8.4) (2026-06-15)
 
 
