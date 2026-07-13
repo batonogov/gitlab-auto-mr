@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.8.6](https://github.com/batonogov/gitlab-auto-mr/compare/v1.8.5...v1.8.6) (2026-07-13)
+
+
+### Maintenance
+
+* **deps:** bump golang in the docker-dependencies group ([#136](https://github.com/batonogov/gitlab-auto-mr/issues/136)) ([d9411f9](https://github.com/batonogov/gitlab-auto-mr/commit/d9411f9e94020cd4e125b381b0c5f2b6b0c8720f))
+* **deps:** bump the github-actions group with 7 updates ([#135](https://github.com/batonogov/gitlab-auto-mr/issues/135)) ([8ca58fc](https://github.com/batonogov/gitlab-auto-mr/commit/8ca58fcb4521b185fb82c7feded4c3de667e0200))
+
+
+### Continuous Integration
+
+* pin GitHub Actions to commit SHAs ([#133](https://github.com/batonogov/gitlab-auto-mr/issues/133)) ([f05b58f](https://github.com/batonogov/gitlab-auto-mr/commit/f05b58f4cb3977563fb5b141783733e5b53acec6))
+
 ## [1.8.5](https://github.com/batonogov/gitlab-auto-mr/compare/v1.8.4...v1.8.5) (2026-06-29)
 
 
