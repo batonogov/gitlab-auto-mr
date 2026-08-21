@@ -6,6 +6,10 @@
 *.dylib
 gitlab_auto_mr
 gitlab_auto_mr-*
+# The Taskfile and Dockerfile build `gitlab_auto_mr`, but `go build` without -o
+# names the binary after the module directory — with a dash.
+gitlab-auto-mr
+gitlab-auto-mr-*
 
 # Test files
 *.test
