@@ -172,7 +172,8 @@ create_only:
 | `--update-mr`           |       | Update existing MR (required to update, fail if none exists) | `false`                |
 | `--create-only`         |       | Force create new MR (fail if already exists)   | `false`                |
 | `--auto-merge`          |       | Enable merge when pipeline succeeds (auto-merge) | `false`              |
-| `--trigger-pipeline`    |       | Create a merge request pipeline after the MR is created | `false`         |
+| `--trigger-pipeline`    |       | Create a merge request pipeline for the created or updated MR | `false`   |
+| `--force-pipeline`      |       | With `--trigger-pipeline`, create one even if the commit has one | `false` |
 | `--insecure`            | `-k`  | Skip SSL certificate verification              | `false`                |
 
 ### Merge Request Pipelines
@@ -183,8 +184,9 @@ configuration runs jobs only on `merge_request_event`, those jobs never run for
 the newly created MR — and the branch pipeline that did run may look green while
 having executed none of them.
 
-`--trigger-pipeline` asks GitLab for that pipeline explicitly, right after the MR
-is created:
+`--trigger-pipeline` asks GitLab for that pipeline explicitly, for the MR this
+run created **or updated** — a branch that moved is exactly when the checks are
+worth re-running:
 
 ```yaml
 open_merge_request:
@@ -192,6 +194,21 @@ open_merge_request:
   script:
     - gitlab_auto_mr --target-branch main --trigger-pipeline
 ```
+
+The flag acts at most once per commit. Before creating a pipeline the tool lists
+the MR's existing ones and skips when it finds one for the same head commit,
+reporting the skip so it is visible in the job log:
+
+```
+Merge request pipeline already exists for commit abc123de (ID: 7, status: running): https://gitlab.example.com/p/-/pipelines/7
+Skipping pipeline creation; pass --force-pipeline to create another.
+```
+
+That is what keeps a retried job, a manual re-run, or a later run against the
+same MR from stacking up pipelines for one commit. Use `--force-pipeline` when
+re-running the checks is exactly the point. If the pipeline list cannot be read,
+the tool creates one anyway: a duplicate is a better outcome than checks that
+silently did not run.
 
 Two things to expect:
 
