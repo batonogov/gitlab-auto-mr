@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -98,6 +99,10 @@ func TestParseIntSlice(t *testing.T) {
 		{"123,invalid,456", []int{123, 456}},
 		{" 123 , 456 ", []int{123, 456}},
 		{"invalid", []int{}},
+		// A trailing or doubled comma is what an unset CI variable interpolated
+		// into --user-id looks like; the IDs around it must still be assigned.
+		{"123,,456", []int{123, 456}},
+		{"123,", []int{123}},
 	}
 
 	for _, test := range tests {
@@ -1814,13 +1819,27 @@ func TestRunLabelAndMilestone(t *testing.T) {
 // buffer cannot deadlock.
 func captureOutput(t *testing.T, fn func()) string {
 	t.Helper()
+	return captureStream(t, &os.Stdout, fn)
+}
 
-	orig := os.Stdout
+// captureStderr is captureOutput for the stream the retry and fallback warnings
+// go to.
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	return captureStream(t, &os.Stderr, fn)
+}
+
+// captureStream redirects the given *os.File variable through a pipe for the
+// duration of fn and returns everything written to it.
+func captureStream(t *testing.T, stream **os.File, fn func()) string {
+	t.Helper()
+
+	orig := *stream
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatalf("os.Pipe: %v", err)
 	}
-	os.Stdout = w
+	*stream = w
 
 	done := make(chan string, 1)
 	go func() {
@@ -3108,6 +3127,9 @@ func clearRequiredParseEnv(t *testing.T) {
 		"GITLAB_AUTO_MR_TARGET_BRANCH",
 		"GITLAB_AUTO_MR_LABELS",
 		"GITLAB_AUTO_MR_MILESTONE",
+		"GITLAB_AUTO_MR_TIMEOUT",
+		"GITLAB_AUTO_MR_RETRIES",
+		"GITLAB_AUTO_MR_RETRY_DELAY",
 	} {
 		t.Setenv(key, "")
 	}
@@ -3322,6 +3344,80 @@ func TestParseFlags(t *testing.T) {
 				}
 				if c.MilestoneID != 9 {
 					t.Errorf("MilestoneID = %d, want 9", c.MilestoneID)
+				}
+			},
+		},
+		{
+			// --reviewer-id has no env default, so the flag is the only way it
+			// is ever populated.
+			name:  "reviewer-ids",
+			args:  []string{"prog", "--reviewer-id", "3, 4"},
+			setup: setRequiredParseEnv,
+			checkConfig: func(t *testing.T, c *Config) {
+				t.Helper()
+				if len(c.ReviewerIDs) != 2 || c.ReviewerIDs[0] != 3 || c.ReviewerIDs[1] != 4 {
+					t.Errorf("ReviewerIDs = %v, want [3 4]", c.ReviewerIDs)
+				}
+			},
+		},
+		{
+			// A zero timeout would mean "no deadline" to net/http, the opposite
+			// of what someone passing --timeout 0 is asking for.
+			name:      "zero-timeout",
+			args:      []string{"prog", "--timeout", "0"},
+			setup:     setRequiredParseEnv,
+			wantErr:   true,
+			errSubstr: "--timeout must be positive",
+		},
+		{
+			name:      "negative-retries",
+			args:      []string{"prog", "--retries", "-1"},
+			setup:     setRequiredParseEnv,
+			wantErr:   true,
+			errSubstr: "--retries must not be negative",
+		},
+		{
+			name:      "negative-retry-delay",
+			args:      []string{"prog", "--retry-delay", "-1s"},
+			setup:     setRequiredParseEnv,
+			wantErr:   true,
+			errSubstr: "--retry-delay must not be negative",
+		},
+		{
+			name: "http-tuning-from-env",
+			args: []string{"prog"},
+			setup: func(t *testing.T) {
+				setRequiredParseEnv(t)
+				t.Setenv("GITLAB_AUTO_MR_TIMEOUT", "45s")
+				t.Setenv("GITLAB_AUTO_MR_RETRIES", "5")
+				t.Setenv("GITLAB_AUTO_MR_RETRY_DELAY", "250ms")
+			},
+			checkConfig: func(t *testing.T, c *Config) {
+				t.Helper()
+				if c.Timeout != 45*time.Second {
+					t.Errorf("Timeout = %s, want 45s", c.Timeout)
+				}
+				if c.Retries != 5 {
+					t.Errorf("Retries = %d, want 5", c.Retries)
+				}
+				if c.RetryDelay != 250*time.Millisecond {
+					t.Errorf("RetryDelay = %s, want 250ms", c.RetryDelay)
+				}
+			},
+		},
+		{
+			// An unparsable duration must fall back to the built-in default
+			// rather than leaving a zero timeout that never expires.
+			name: "unparsable-timeout-env-falls-back-to-default",
+			args: []string{"prog"},
+			setup: func(t *testing.T) {
+				setRequiredParseEnv(t)
+				t.Setenv("GITLAB_AUTO_MR_TIMEOUT", "forever")
+			},
+			checkConfig: func(t *testing.T, c *Config) {
+				t.Helper()
+				if c.Timeout != defaultTimeout {
+					t.Errorf("Timeout = %s, want %s", c.Timeout, defaultTimeout)
 				}
 			},
 		},
@@ -3587,5 +3683,583 @@ func TestRunWithoutTriggerPipeline(t *testing.T) {
 
 	if err := run(context.Background(), config); err != nil {
 		t.Errorf("Expected no error, got %v", err)
+	}
+}
+
+// mrFlowOpts configures mrFlowServer. A zero value serves the whole happy path:
+// project lookup, an empty MR list, MR creation and pipeline creation. The
+// *Status fields make one endpoint fail so run()'s error wrapping can be
+// exercised one failing call at a time.
+type mrFlowOpts struct {
+	defaultBranch  string
+	existing       bool
+	listStatus     int
+	createStatus   int
+	updateStatus   int
+	pipelineStatus int
+}
+
+// mrFlowServer mocks the endpoints run() walks through for project 123. The
+// returned MRCreateRequest holds the body of the POST that created the MR, so
+// tests can assert on what run() actually asked GitLab for.
+func mrFlowServer(t *testing.T, opts mrFlowOpts) (*httptest.Server, *MRCreateRequest) {
+	t.Helper()
+
+	created := &MRCreateRequest{}
+	const base = "/api/v4/projects/123/merge_requests"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		switch {
+		case r.URL.Path == "/api/v4/projects/123":
+			branch := opts.defaultBranch
+			if branch == "" {
+				branch = "main"
+			}
+			writeTestJSON(t, w, Project{ID: 123, Name: "test-project", DefaultBranch: branch})
+
+		case r.URL.Path == base && r.Method == http.MethodGet:
+			if opts.listStatus != 0 {
+				w.WriteHeader(opts.listStatus)
+				return
+			}
+			mrs := []MergeRequest{}
+			if opts.existing {
+				mrs = append(mrs, MergeRequest{
+					ID: 1, IID: 1, Title: "Existing MR", SourceBranch: "feature/test",
+					TargetBranch: "main", State: "opened", SHA: "deadbeefcafe",
+				})
+			}
+			writeTestJSON(t, w, mrs)
+
+		case r.URL.Path == base && r.Method == http.MethodPost:
+			if opts.createStatus != 0 {
+				w.WriteHeader(opts.createStatus)
+				return
+			}
+			if err := json.NewDecoder(r.Body).Decode(created); err != nil {
+				t.Errorf("decode create request: %v", err)
+			}
+			w.WriteHeader(http.StatusCreated)
+			writeTestJSON(t, w, MergeRequest{ID: 1, IID: 1, Title: created.Title, SHA: "deadbeefcafe"})
+
+		case r.URL.Path == base+"/1" && r.Method == http.MethodPut:
+			if opts.updateStatus != 0 {
+				w.WriteHeader(opts.updateStatus)
+				return
+			}
+			writeTestJSON(t, w, MergeRequest{ID: 1, IID: 1})
+
+		case strings.HasSuffix(r.URL.Path, "/pipelines"):
+			if opts.pipelineStatus != 0 {
+				w.WriteHeader(opts.pipelineStatus)
+				return
+			}
+			if r.Method == http.MethodGet {
+				writeTestJSON(t, w, []Pipeline{})
+				return
+			}
+			w.WriteHeader(http.StatusCreated)
+			writeTestJSON(t, w, Pipeline{ID: 9, Status: "created"})
+
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	return server, created
+}
+
+// writeTestJSON encodes v onto the mock response and fails the test rather than
+// silently serving a truncated body.
+func writeTestJSON(t *testing.T, w http.ResponseWriter, v any) {
+	t.Helper()
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		t.Errorf("encode mock response: %v", err)
+	}
+}
+
+// TestGetEnvDuration pins that a duration env var overrides the default only
+// when it parses; GITLAB_AUTO_MR_TIMEOUT=forever must not become a zero timeout.
+func TestGetEnvDuration(t *testing.T) {
+	tests := []struct {
+		name         string
+		value        string
+		defaultValue time.Duration
+		want         time.Duration
+	}{
+		{name: "empty", value: "", defaultValue: 30 * time.Second, want: 30 * time.Second},
+		{name: "valid", value: "45s", defaultValue: 30 * time.Second, want: 45 * time.Second},
+		{name: "valid-millis", value: "250ms", defaultValue: time.Second, want: 250 * time.Millisecond},
+		{name: "unparsable", value: "forever", defaultValue: 30 * time.Second, want: 30 * time.Second},
+		{name: "bare-number", value: "30", defaultValue: 5 * time.Second, want: 5 * time.Second},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			const key = "TEST_DURATION"
+			t.Setenv(key, tc.value)
+
+			if got := getEnvDuration(key, tc.defaultValue); got != tc.want {
+				t.Errorf("getEnvDuration(%q) = %s, want %s", tc.value, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestRunResolvesTargetBranchFromProject pins that an unset --target-branch is
+// filled in from the project's default branch, and that the resolved branch is
+// what actually reaches the create call rather than an empty string.
+func TestRunResolvesTargetBranchFromProject(t *testing.T) {
+	server, created := mrFlowServer(t, mrFlowOpts{defaultBranch: "develop"})
+
+	config := &Config{
+		GitLabURL:    server.URL,
+		ProjectID:    123,
+		PrivateToken: "test-token",
+		SourceBranch: "feature/test",
+		UserIDs:      []int{1},
+		CommitPrefix: "Draft",
+	}
+
+	out := captureOutput(t, func() {
+		if err := run(context.Background(), config); err != nil {
+			t.Errorf("run() error = %v", err)
+		}
+	})
+
+	if config.TargetBranch != "develop" {
+		t.Errorf("config.TargetBranch = %q, want %q", config.TargetBranch, "develop")
+	}
+	if created.TargetBranch != "develop" {
+		t.Errorf("created MR target_branch = %q, want %q", created.TargetBranch, "develop")
+	}
+	if !strings.Contains(out, "Created a new MR") {
+		t.Errorf("output %q does not report the created MR", out)
+	}
+}
+
+// TestRunErrorPaths pins the wording run() puts around each failing step. Those
+// prefixes are what a CI log shows when something breaks, so each one has to
+// name the call that failed instead of surfacing a bare HTTP status.
+func TestRunErrorPaths(t *testing.T) {
+	tests := []struct {
+		name      string
+		opts      mrFlowOpts
+		mutate    func(t *testing.T, c *Config)
+		errSubstr string
+	}{
+		{
+			name: "unreadable-ca-cert",
+			mutate: func(t *testing.T, c *Config) {
+				t.Helper()
+				c.CACert = filepath.Join(t.TempDir(), "missing.pem")
+			},
+			errSubstr: "unable to read CA certificate",
+		},
+		{
+			name: "malformed-gitlab-url",
+			mutate: func(t *testing.T, c *Config) {
+				t.Helper()
+				c.GitLabURL = "http://gitlab.example.com\x7f"
+			},
+			errSubstr: "unable to get project 123",
+		},
+		{
+			name:      "project-lookup-fails",
+			mutate:    func(t *testing.T, c *Config) { t.Helper(); c.ProjectID = 999 },
+			errSubstr: "unable to get project 999",
+		},
+		{
+			// The branch resolved from the project is still validated: a default
+			// branch equal to the source must not reach the create call.
+			name:      "resolved-target-equals-source",
+			opts:      mrFlowOpts{defaultBranch: "feature/test"},
+			mutate:    func(t *testing.T, c *Config) { t.Helper(); c.TargetBranch = "" },
+			errSubstr: "source branch and target branches must be different",
+		},
+		{
+			name:      "mr-lookup-fails",
+			opts:      mrFlowOpts{listStatus: http.StatusInternalServerError},
+			errSubstr: "failed to check if MR exists",
+		},
+		{
+			name:      "create-fails",
+			opts:      mrFlowOpts{createStatus: http.StatusInternalServerError},
+			errSubstr: "failed to create MR",
+		},
+		{
+			name:      "update-fails",
+			opts:      mrFlowOpts{existing: true, updateStatus: http.StatusInternalServerError},
+			mutate:    func(t *testing.T, c *Config) { t.Helper(); c.UpdateMR = true },
+			errSubstr: "failed to update MR",
+		},
+		{
+			name:      "pipeline-trigger-fails",
+			opts:      mrFlowOpts{pipelineStatus: http.StatusForbidden},
+			mutate:    func(t *testing.T, c *Config) { t.Helper(); c.TriggerPipeline = true },
+			errSubstr: "failed to trigger merge request pipeline",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			server, _ := mrFlowServer(t, tc.opts)
+
+			config := &Config{
+				GitLabURL:    server.URL,
+				ProjectID:    123,
+				PrivateToken: "test-token",
+				SourceBranch: "feature/test",
+				TargetBranch: "main",
+				UserIDs:      []int{1},
+				CommitPrefix: "Draft",
+			}
+			if tc.mutate != nil {
+				tc.mutate(t, config)
+			}
+
+			var err error
+			captureOutput(t, func() { err = run(context.Background(), config) })
+
+			if err == nil {
+				t.Fatalf("run() error = nil, want an error containing %q", tc.errSubstr)
+			}
+			if !strings.Contains(err.Error(), tc.errSubstr) {
+				t.Errorf("run() error = %q, want it to contain %q", err, tc.errSubstr)
+			}
+		})
+	}
+}
+
+// TestRunMRExistsWithoutMR pins the other half of --mr-exists: with no open MR
+// the dry run says so and still exits successfully, because callers gate the
+// rest of their pipeline on the exit status.
+func TestRunMRExistsWithoutMR(t *testing.T) {
+	server, _ := mrFlowServer(t, mrFlowOpts{})
+
+	config := &Config{
+		GitLabURL:    server.URL,
+		ProjectID:    123,
+		PrivateToken: "test-token",
+		SourceBranch: "feature/test",
+		TargetBranch: "main",
+		UserIDs:      []int{1},
+		MRExists:     true,
+	}
+
+	var err error
+	out := captureOutput(t, func() { err = run(context.Background(), config) })
+
+	if err != nil {
+		t.Fatalf("run() error = %v, want nil", err)
+	}
+	if !strings.Contains(out, "Merge request does not exist for this branch feature/test to main") {
+		t.Errorf("output %q does not report the missing MR", out)
+	}
+	if strings.Contains(out, "Merge request exists") {
+		t.Errorf("output %q reports an MR that does not exist", out)
+	}
+}
+
+// TestEnableAutoMerge pins the two paths around a successful accept: a missing
+// IID is a warning and not a failure, while a refused accept fails the run with
+// wording that names auto-merge rather than a bare HTTP status.
+func TestEnableAutoMerge(t *testing.T) {
+	t.Run("zero IID skips the call", func(t *testing.T) {
+		calls := 0
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			calls++
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		config := &Config{GitLabURL: server.URL, ProjectID: 123, PrivateToken: "test-token"}
+
+		var err error
+		out := captureOutput(t, func() {
+			err = enableAutoMerge(context.Background(), &http.Client{}, config, 0)
+		})
+
+		if err != nil {
+			t.Errorf("enableAutoMerge() error = %v, want nil", err)
+		}
+		if calls != 0 {
+			t.Errorf("accept called %d times, want 0", calls)
+		}
+		if !strings.Contains(out, "skipping auto-merge") {
+			t.Errorf("output %q does not warn about the skipped auto-merge", out)
+		}
+	})
+
+	t.Run("refused accept fails the run", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusConflict)
+		}))
+		defer server.Close()
+
+		config := &Config{GitLabURL: server.URL, ProjectID: 123, PrivateToken: "test-token"}
+
+		err := enableAutoMerge(context.Background(), &http.Client{}, config, 42)
+		if err == nil {
+			t.Fatal("enableAutoMerge() error = nil, want an error")
+		}
+		if !strings.Contains(err.Error(), "failed to enable auto-merge") {
+			t.Errorf("error = %q, want it to mention auto-merge", err)
+		}
+	})
+}
+
+// TestMalformedJSONResponses pins that a 200 whose body is not the JSON the
+// endpoint promised becomes an error instead of a zero value. A proxy or a
+// login page answering with HTML is the realistic source, and reading that as
+// "no MR found" would open a duplicate MR.
+func TestMalformedJSONResponses(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		if _, err := w.Write([]byte("<html>sign in</html>")); err != nil {
+			t.Errorf("write response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	config := &Config{
+		GitLabURL:    server.URL,
+		ProjectID:    123,
+		PrivateToken: "test-token",
+		SourceBranch: "feature/fix-#123",
+		TargetBranch: "main",
+	}
+	client := &http.Client{}
+
+	tests := []struct {
+		name string
+		call func() error
+	}{
+		{
+			name: "getProject",
+			call: func() error {
+				_, err := getProject(context.Background(), client, config)
+				return err
+			},
+		},
+		{
+			name: "getExistingMR",
+			call: func() error {
+				_, err := getExistingMR(context.Background(), client, config)
+				return err
+			},
+		},
+		{
+			name: "getIssueData",
+			call: func() error {
+				_, err := getIssueData(context.Background(), client, config)
+				return err
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.call(); err == nil {
+				t.Errorf("%s() error = nil, want a decoding error", tc.name)
+			}
+		})
+	}
+}
+
+// TestTriggerMRPipelineUnreadablePipelineList pins that an unreadable pipeline
+// list does not block the pipeline: deduplication is an optimization, and
+// silently skipping the checks is the worse of the two failure modes.
+func TestTriggerMRPipelineUnreadablePipelineList(t *testing.T) {
+	created := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			created++
+			w.WriteHeader(http.StatusCreated)
+			if _, err := w.Write([]byte(`{"id":9,"status":"created"}`)); err != nil {
+				t.Errorf("write created pipeline: %v", err)
+			}
+			return
+		}
+		if _, err := w.Write([]byte("<html>gateway timeout</html>")); err != nil {
+			t.Errorf("write pipeline list: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	config := &Config{GitLabURL: server.URL, ProjectID: 123, PrivateToken: "test-token"}
+	mr := &MergeRequest{IID: 42, SHA: "deadbeefcafe"}
+
+	var err error
+	captureOutput(t, func() { err = triggerMRPipeline(context.Background(), &http.Client{}, config, mr) })
+
+	if err != nil {
+		t.Errorf("triggerMRPipeline() error = %v, want nil", err)
+	}
+	if created != 1 {
+		t.Errorf("pipelines created = %d, want 1", created)
+	}
+}
+
+// TestGetDescriptionDataReadsFile pins the success path of --description: the
+// file reaches the MR byte for byte, since the description is Markdown and any
+// reflowing or trimming would corrupt it.
+func TestGetDescriptionDataReadsFile(t *testing.T) {
+	const body = "## Summary\n\n- one\n- two\n"
+
+	path := filepath.Join(t.TempDir(), "description.md")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("write description: %v", err)
+	}
+
+	if got := getDescriptionData(path); got != body {
+		t.Errorf("getDescriptionData() = %q, want %q", got, body)
+	}
+}
+
+// TestGetIssueDataErrors pins that the ways of failing to read an issue stay
+// distinguishable: only an answer from GitLab may be reported as a missing
+// issue, so a network outage is not mistaken for a deleted issue.
+func TestGetIssueDataErrors(t *testing.T) {
+	t.Run("issue number too large for an int", func(t *testing.T) {
+		config := &Config{
+			GitLabURL:    "http://127.0.0.1:1",
+			ProjectID:    123,
+			PrivateToken: "test-token",
+			SourceBranch: "feature/fix-#99999999999999999999",
+		}
+
+		_, err := getIssueData(context.Background(), &http.Client{}, config)
+		if err == nil {
+			t.Fatal("getIssueData() error = nil, want an error")
+		}
+		if !strings.Contains(err.Error(), "invalid issue number") {
+			t.Errorf("error = %q, want it to mention an invalid issue number", err)
+		}
+	})
+
+	t.Run("transport failure is not reported as a missing issue", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+		server.Close()
+
+		config := &Config{
+			GitLabURL:    server.URL,
+			ProjectID:    123,
+			PrivateToken: "test-token",
+			SourceBranch: "feature/fix-#123",
+		}
+
+		_, err := getIssueData(context.Background(), &http.Client{}, config)
+		if err == nil {
+			t.Fatal("getIssueData() error = nil, want a transport error")
+		}
+		if strings.Contains(err.Error(), "not found") {
+			t.Errorf("error = %q, want the transport error rather than a not-found message", err)
+		}
+	})
+
+	t.Run("API status is reported as a missing issue", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusForbidden)
+		}))
+		defer server.Close()
+
+		config := &Config{
+			GitLabURL:    server.URL,
+			ProjectID:    123,
+			PrivateToken: "test-token",
+			SourceBranch: "feature/fix-#123",
+		}
+
+		_, err := getIssueData(context.Background(), &http.Client{}, config)
+		if err == nil {
+			t.Fatal("getIssueData() error = nil, want an error")
+		}
+		if !strings.Contains(err.Error(), "issue #123 not found") {
+			t.Errorf("error = %q, want %q", err, "issue #123 not found")
+		}
+	})
+}
+
+// TestDoRequestStopsWhenCanceledDuringBackoff pins that a canceled context is
+// noticed while waiting between retries. Without it a --retries run keeps
+// sleeping after the caller gave up, well past the deadline it was given.
+func TestDoRequestStopsWhenCanceledDuringBackoff(t *testing.T) {
+	var requests atomic.Int64
+	firstRequest := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if requests.Add(1) == 1 {
+			close(firstRequest)
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	config := &Config{
+		GitLabURL:    server.URL,
+		ProjectID:    123,
+		PrivateToken: "test-token",
+		Retries:      5,
+		RetryDelay:   10 * time.Second,
+	}
+
+	// Canceling a little after the first answer lands puts the cancellation
+	// inside the backoff rather than inside the request, which is the wait the
+	// retry loop has to notice.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		<-firstRequest
+		time.Sleep(100 * time.Millisecond)
+		cancel()
+	}()
+
+	start := time.Now()
+	var err error
+	warnings := captureStderr(t, func() {
+		_, err = doRequest(ctx, &http.Client{}, config, http.MethodGet, "projects/123", nil)
+	})
+
+	if err == nil {
+		t.Fatal("doRequest() error = nil, want the cancellation error")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("doRequest() error = %v, want context.Canceled", err)
+	}
+	if !strings.Contains(warnings, "retrying in") {
+		t.Errorf("stderr = %q, want the retry warning that precedes the backoff", warnings)
+	}
+	if elapsed := time.Since(start); elapsed >= config.RetryDelay {
+		t.Errorf("doRequest() took %s, want it to abandon the %s backoff", elapsed, config.RetryDelay)
+	}
+	if got := requests.Load(); got != 1 {
+		t.Errorf("requests = %d, want 1: the retry must not be sent after cancellation", got)
+	}
+}
+
+// TestSendRequestTruncatedBody pins that a response cut short mid-body is an
+// error rather than a short read handed to the caller as a valid one.
+func TestSendRequestTruncatedBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", "512")
+		if _, err := w.Write([]byte(`{"id":123`)); err != nil {
+			t.Logf("write truncated body: %v", err)
+		}
+		// Flush so the client sees a complete 200 and only then loses the
+		// connection: the failure has to land in the body read, not the dial.
+		w.(http.Flusher).Flush()
+		panic(http.ErrAbortHandler)
+	}))
+	defer server.Close()
+
+	config := &Config{GitLabURL: server.URL, ProjectID: 123, PrivateToken: "test-token"}
+
+	_, _, err := sendRequest(context.Background(), &http.Client{}, config,
+		http.MethodGet, server.URL+"/api/v4/projects/123", nil, false)
+	if err == nil {
+		t.Fatal("sendRequest() error = nil, want a read error for the truncated body")
 	}
 }
