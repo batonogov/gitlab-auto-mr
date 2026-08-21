@@ -57,6 +57,8 @@ type Config struct {
 	CreateOnly         bool
 	AutoMerge          bool
 	TriggerPipeline    bool
+	Labels             []string
+	MilestoneID        int
 }
 
 type Project struct {
@@ -141,7 +143,7 @@ func main() {
 func parseFlags() (*Config, error) {
 	config := &Config{}
 
-	var userIDsStr, reviewerIDsStr string
+	var userIDsStr, reviewerIDsStr, labelsStr string
 	var showVersion bool
 
 	flag.StringVar(&config.PrivateToken, "private-token", getEnv("GITLAB_PRIVATE_TOKEN", ""), "Private GITLAB token")
@@ -166,6 +168,10 @@ func parseFlags() (*Config, error) {
 	flag.StringVar(&config.Description, "description", "", "Path to description file")
 	flag.StringVar(&config.Description, "d", "", "Path to description file (short)")
 	flag.StringVar(&config.Title, "title", "", "Custom MR title")
+	flag.StringVar(&labelsStr, "label", getEnv("GITLAB_AUTO_MR_LABELS", ""),
+		"Labels to set on the MR (comma-separated)")
+	flag.IntVar(&config.MilestoneID, "milestone", getEnvInt("GITLAB_AUTO_MR_MILESTONE", 0),
+		"Milestone ID to set on the MR")
 	flag.BoolVar(&config.UseIssueName, "use-issue-name", false, "Use issue data from branch name")
 	flag.BoolVar(&config.UseIssueName, "i", false, "Use issue data from branch name (short)")
 	flag.BoolVar(&config.AllowCollaboration, "allow-collaboration", false, "Allow collaboration")
@@ -208,6 +214,7 @@ func parseFlags() (*Config, error) {
 	if reviewerIDsStr != "" {
 		config.ReviewerIDs = parseIntSlice(reviewerIDsStr)
 	}
+	config.Labels = parseStringSlice(labelsStr)
 
 	// Clean GitLab URL if it contains full project URL
 	if strings.Contains(config.GitLabURL, "/") {
@@ -363,15 +370,7 @@ func handleUpdateMR(
 		AllowCollaboration: config.AllowCollaboration,
 	}
 
-	if config.UseIssueName {
-		issueData, err := getIssueData(client, config)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to fetch issue data: %v\n", err)
-		} else {
-			updateRequest.MilestoneID = issueData.Milestone.ID
-			updateRequest.Labels = issueData.Labels
-		}
-	}
+	updateRequest.MilestoneID, updateRequest.Labels = resolveMRMetadata(client, config)
 
 	if err := updateMR(client, config, existingMR.IID, updateRequest); err != nil {
 		return 0, fmt.Errorf("failed to update MR: %v", err)
@@ -397,15 +396,7 @@ func handleCreateMR(
 		AllowCollaboration: config.AllowCollaboration,
 	}
 
-	if config.UseIssueName {
-		issueData, err := getIssueData(client, config)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to fetch issue data: %v\n", err)
-		} else {
-			mrRequest.MilestoneID = issueData.Milestone.ID
-			mrRequest.Labels = issueData.Labels
-		}
-	}
+	mrRequest.MilestoneID, mrRequest.Labels = resolveMRMetadata(client, config)
 
 	createdMR, err := createMR(client, config, mrRequest)
 	if err != nil {
@@ -414,6 +405,60 @@ func handleCreateMR(
 
 	fmt.Printf("Created a new MR %s, assigned to you.\n", title)
 	return createdMR.IID, nil
+}
+
+// resolveMRMetadata determines the milestone and labels for the MR, combining
+// what was given on the command line with what the linked issue carries.
+//
+// --milestone wins over the issue's milestone; labels are the union of the two,
+// with --label values first. A failure to fetch the issue is a warning, not an
+// error: the MR is still worth creating without its issue metadata.
+func resolveMRMetadata(client *http.Client, config *Config) (int, []string) {
+	milestoneID := config.MilestoneID
+	labels := config.Labels
+
+	if !config.UseIssueName {
+		return milestoneID, labels
+	}
+
+	issue, err := getIssueData(client, config)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to fetch issue data: %v\n", err)
+		return milestoneID, labels
+	}
+
+	if milestoneID == 0 {
+		milestoneID = issue.Milestone.ID
+	}
+
+	return milestoneID, mergeLabels(labels, issue.Labels)
+}
+
+// mergeLabels appends the labels from extra that are not already in base,
+// preserving the order of both and never returning a non-nil empty slice
+// (MRCreateRequest.Labels is omitempty, and an empty list would clear labels).
+func mergeLabels(base, extra []string) []string {
+	if len(extra) == 0 {
+		return base
+	}
+
+	seen := make(map[string]struct{}, len(base)+len(extra))
+	merged := make([]string, 0, len(base)+len(extra))
+
+	for _, group := range [][]string{base, extra} {
+		for _, label := range group {
+			if _, ok := seen[label]; ok {
+				continue
+			}
+			seen[label] = struct{}{}
+			merged = append(merged, label)
+		}
+	}
+
+	if len(merged) == 0 {
+		return nil
+	}
+	return merged
 }
 
 func enableAutoMerge(client *http.Client, config *Config, mrIID int) error {
@@ -804,6 +849,30 @@ func getEnvInt(key string, defaultValue int) int {
 
 func boolPtr(b bool) *bool {
 	return &b
+}
+
+// parseStringSlice splits a comma-separated flag value, trimming each element
+// and dropping empty ones. Returns nil for an empty input so the field stays
+// omitted from the JSON request rather than being sent as an empty list.
+func parseStringSlice(s string) []string {
+	if s == "" {
+		return nil
+	}
+
+	parts := strings.Split(s, ",")
+	result := make([]string, 0, len(parts))
+
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			result = append(result, part)
+		}
+	}
+
+	if len(result) == 0 {
+		return nil
+	}
+	return result
 }
 
 func parseIntSlice(s string) []int {
