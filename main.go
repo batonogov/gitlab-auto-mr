@@ -503,8 +503,10 @@ func createHTTPClient(insecure bool) *http.Client {
 	}
 
 	if insecure {
+		// #nosec G402 -- certificate verification is disabled only at the user's
+		// explicit request, via --insecure/-k.
 		tr := &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // user-requested via --insecure flag
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 		}
 		client.Transport = tr
 	}
@@ -609,6 +611,8 @@ func getDescriptionData(descriptionPath string) string {
 		return ""
 	}
 
+	// #nosec G304 -- the path comes from the caller's own --description flag and the
+	// tool runs with the caller's rights, so there is no privilege boundary to cross.
 	data, err := os.ReadFile(descriptionPath)
 	if err != nil {
 		fmt.Printf("Unable to read description file at %s: %v. No description will be set.\n",

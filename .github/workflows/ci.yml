@@ -76,7 +76,6 @@ jobs:
         with:
           version: latest
           args: --verbose
-        continue-on-error: true
 
   build:
     name: Build
@@ -126,21 +125,13 @@ jobs:
           go-version: "1.25"
 
       - name: Install gosec
-        run: go install github.com/securecodewarrior/gosec/v2/cmd/gosec@latest
-        continue-on-error: true
+        run: go install github.com/securego/gosec/v2/cmd/gosec@v2.28.0
 
       - name: Run Gosec Security Scanner
-        run: |
-          if command -v gosec >/dev/null 2>&1; then
-            gosec -fmt sarif -out gosec.sarif ./...
-          else
-            echo "gosec not available, skipping security scan"
-            echo '{"version": "2.1.0", "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json", "runs": [{"tool": {"driver": {"name": "gosec", "version": "1.0.0"}}, "results": []}]}' > gosec.sarif
-          fi
-        continue-on-error: true
+        run: gosec -fmt sarif -out gosec.sarif -stdout -verbose text ./...
 
       - name: Upload SARIF file
         uses: github/codeql-action/upload-sarif@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
         with:
           sarif_file: gosec.sarif
-        if: always()
+        if: always() && hashFiles('gosec.sarif') != ''
