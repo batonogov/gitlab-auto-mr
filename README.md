@@ -152,6 +152,9 @@ create_only:
   `--target-branch`/`-t`; when neither is set, the project's default branch is used.
 - `GITLAB_AUTO_MR_LABELS` - Labels for the MR (comma-separated). Overridden by `--label`.
 - `GITLAB_AUTO_MR_MILESTONE` - Milestone ID for the MR. Overridden by `--milestone`.
+- `GITLAB_AUTO_MR_TIMEOUT` - Timeout for a single API request (default `30s`)
+- `GITLAB_AUTO_MR_RETRIES` - Retries for transient failures (default `2`)
+- `GITLAB_AUTO_MR_RETRY_DELAY` - Delay before the first retry (default `1s`)
 
 ### CLI Options
 
@@ -174,6 +177,10 @@ create_only:
 | `--auto-merge`          |       | Enable merge when pipeline succeeds (auto-merge) | `false`              |
 | `--trigger-pipeline`    |       | Create a merge request pipeline for the created or updated MR | `false`   |
 | `--force-pipeline`      |       | With `--trigger-pipeline`, create one even if the commit has one | `false` |
+| `--trigger-pipeline`    |       | Create a merge request pipeline after the MR is created | `false`         |
+| `--timeout`             |       | Timeout for a single API request               | `30s`                  |
+| `--retries`             |       | Retries for transient failures (5xx, 429, network) | `2`                |
+| `--retry-delay`         |       | Delay before the first retry, doubled each time | `1s`                  |
 | `--insecure`            | `-k`  | Skip SSL certificate verification              | `false`                |
 
 ### Merge Request Pipelines
@@ -221,6 +228,28 @@ Two things to expect:
   role on the project. A `CI_JOB_TOKEN` cannot be used: the Merge Requests API
   is read-only for job tokens, so it can neither create the MR nor request a
   pipeline for it.
+
+## Retries
+
+Self-hosted GitLab returns 502/503 during restarts and upgrades, and CI runners
+hit transient network errors. By default the tool retries such a failure twice,
+waiting 1s and then 2s, so a job does not fail for a reason that a re-run would
+have fixed anyway. `--retries 0` turns it off.
+
+What gets retried depends on what a repeat could do:
+
+| Request | Retried on 5xx / 429 | Retried on a network error |
+| --- | --- | --- |
+| `GET`, `PUT` | yes | yes |
+| `POST` | no | only if the connection was never established |
+
+`POST /merge_requests` is the reason for the asymmetry: retrying it after a
+timeout could open a second merge request. A failure to dial is safe to repeat,
+because the request demonstrably never reached GitLab.
+
+A `Retry-After` header — which GitLab sends when rate limiting — takes
+precedence over the backoff, capped at 30s. 4xx answers other than 429 are never
+retried: they are real answers, and repeating them only delays the error.
 
 ## Building
 
