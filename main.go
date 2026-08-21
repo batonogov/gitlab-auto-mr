@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -32,6 +33,15 @@ var (
 const (
 	draftPrefix = "draft"
 	wipPrefix   = "wip"
+)
+
+// Defaults for the HTTP behavior. They are applied where they are used, not
+// only in parseFlags, so a zero-valued Config still behaves like the tool did
+// before these flags existed.
+const (
+	defaultTimeout    = 30 * time.Second
+	defaultRetryDelay = time.Second
+	maxRetryDelay     = 30 * time.Second
 )
 
 // errShowVersion is a sentinel error returned by parseFlags when --version has
@@ -60,6 +70,9 @@ type Config struct {
 	CreateOnly         bool
 	AutoMerge          bool
 	TriggerPipeline    bool
+	Timeout            time.Duration
+	Retries            int
+	RetryDelay         time.Duration
 }
 
 type Project struct {
@@ -183,6 +196,13 @@ func parseFlags() (*Config, error) {
 	flag.BoolVar(&config.AutoMerge, "auto-merge", false, "Enable merge when pipeline succeeds (auto-merge)")
 	flag.BoolVar(&config.TriggerPipeline, "trigger-pipeline", false,
 		"Create a merge request pipeline after the MR is created")
+	flag.DurationVar(&config.Timeout, "timeout", getEnvDuration("GITLAB_AUTO_MR_TIMEOUT", defaultTimeout),
+		"Timeout for a single GitLab API request")
+	flag.IntVar(&config.Retries, "retries", getEnvInt("GITLAB_AUTO_MR_RETRIES", 2),
+		"Retries for transient GitLab failures (network errors, 5xx, 429)")
+	flag.DurationVar(&config.RetryDelay, "retry-delay",
+		getEnvDuration("GITLAB_AUTO_MR_RETRY_DELAY", defaultRetryDelay),
+		"Delay before the first retry, doubled on each further attempt")
 	flag.BoolVar(&showVersion, "version", false, "Show version information and exit")
 	flag.BoolVar(&showVersion, "v", false, "Show version information and exit (short)")
 
@@ -208,6 +228,16 @@ func parseFlags() (*Config, error) {
 	}
 	if userIDsStr == "" {
 		return nil, fmt.Errorf("--user-id is required")
+	}
+
+	if config.Timeout <= 0 {
+		return nil, fmt.Errorf("--timeout must be positive, got %s", config.Timeout)
+	}
+	if config.Retries < 0 {
+		return nil, fmt.Errorf("--retries must not be negative, got %d", config.Retries)
+	}
+	if config.RetryDelay < 0 {
+		return nil, fmt.Errorf("--retry-delay must not be negative, got %s", config.RetryDelay)
 	}
 
 	// Parse user IDs
@@ -266,7 +296,7 @@ func run(ctx context.Context, config *Config) error {
 		return err
 	}
 
-	client := createHTTPClient(config.Insecure)
+	client := createHTTPClient(config)
 
 	project, err := getProject(ctx, client, config)
 	if err != nil {
@@ -493,12 +523,17 @@ func triggerMRPipeline(ctx context.Context, client *http.Client, config *Config,
 	return nil
 }
 
-func createHTTPClient(insecure bool) *http.Client {
-	client := &http.Client{
-		Timeout: 30 * time.Second,
+func createHTTPClient(config *Config) *http.Client {
+	timeout := config.Timeout
+	if timeout <= 0 {
+		timeout = defaultTimeout
 	}
 
-	if insecure {
+	client := &http.Client{
+		Timeout: timeout,
+	}
+
+	if config.Insecure {
 		tr := &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // user-requested via --insecure flag
 		}
@@ -530,7 +565,8 @@ func (e *apiError) Error() string {
 // re-worded per function.
 var errUnauthorized = errors.New("unauthorized access, check your access token is valid and has the api scope")
 
-// doRequest performs one GitLab API call and returns the raw response body.
+// doRequest performs one GitLab API call and returns the raw response body,
+// retrying the attempt when the failure looks transient.
 //
 // path is relative to /api/v4 and must already be escaped. body, when non-nil,
 // is sent as JSON. Any 2xx is success; 401 yields errUnauthorized and every
@@ -544,45 +580,172 @@ func doRequest(
 ) ([]byte, error) {
 	apiURL := fmt.Sprintf("%s/api/v4/%s", config.GitLabURL, path)
 
-	var reader io.Reader = http.NoBody
+	var jsonData []byte
 	if body != nil {
-		jsonData, err := json.Marshal(body)
-		if err != nil {
+		var err error
+		if jsonData, err = json.Marshal(body); err != nil {
 			return nil, err
 		}
-		reader = bytes.NewBuffer(jsonData)
+	}
+
+	for attempt := 0; ; attempt++ {
+		respBody, retryAfter, err := sendRequest(ctx, client, config, method, apiURL, jsonData, body != nil)
+		if err == nil {
+			return respBody, nil
+		}
+
+		if attempt >= config.Retries || !isRetryable(method, err) {
+			return nil, err
+		}
+
+		delay := retryDelay(config, attempt, retryAfter)
+		fmt.Fprintf(os.Stderr, "Warning: %s %s failed (%v), retrying in %s (%d/%d)\n",
+			method, path, err, delay, attempt+1, config.Retries)
+
+		if err := sleep(ctx, delay); err != nil {
+			return nil, err
+		}
+	}
+}
+
+// sendRequest performs a single attempt. The returned duration is the value of
+// a Retry-After header, when GitLab sent one that could be parsed.
+func sendRequest(
+	ctx context.Context, client *http.Client, config *Config,
+	method, apiURL string, jsonData []byte, hasBody bool,
+) ([]byte, time.Duration, error) {
+	var reader io.Reader = http.NoBody
+	if hasBody {
+		reader = bytes.NewReader(jsonData)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, method, apiURL, reader)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	req.Header.Set("PRIVATE-TOKEN", config.PrivateToken)
-	if body != nil {
+	if hasBody {
 		req.Header.Set("Content-Type", "application/json")
 	}
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	if resp.StatusCode == http.StatusUnauthorized {
-		return nil, errUnauthorized
+		return nil, 0, errUnauthorized
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return nil, &apiError{StatusCode: resp.StatusCode, Body: string(respBody)}
+		return nil, parseRetryAfter(resp.Header.Get("Retry-After")),
+			&apiError{StatusCode: resp.StatusCode, Body: string(respBody)}
 	}
 
-	return respBody, nil
+	return respBody, 0, nil
+}
+
+// isRetryable decides whether a failed attempt is worth repeating.
+//
+// The rule is about what a repeat could do, not only about what failed. GET and
+// PUT are idempotent, so repeating one is harmless: at worst GitLab applies the
+// same change twice. POST is not — retrying POST /merge_requests after a
+// timeout could open a second MR — so it is repeated only when the request
+// demonstrably never reached GitLab, which is what a dial failure means.
+func isRetryable(method string, err error) bool {
+	if errors.Is(err, errUnauthorized) || errors.Is(err, context.Canceled) ||
+		errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+
+	var apiErr *apiError
+	if errors.As(err, &apiErr) {
+		// GitLab answered, so the request did reach it: repeating is only safe
+		// for the idempotent verbs.
+		if !isIdempotent(method) {
+			return false
+		}
+		return apiErr.StatusCode >= 500 || apiErr.StatusCode == http.StatusTooManyRequests
+	}
+
+	if isIdempotent(method) {
+		return true
+	}
+
+	return isDialError(err)
+}
+
+func isIdempotent(method string) bool {
+	return method == http.MethodGet || method == http.MethodPut || method == http.MethodHead
+}
+
+// isDialError reports whether the connection was never established, which means
+// the server cannot have seen the request.
+func isDialError(err error) bool {
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		return opErr.Op == "dial"
+	}
+	return false
+}
+
+// retryDelay is the exponential backoff, unless GitLab asked for a specific
+// wait via Retry-After — it knows better, and ignoring it on a 429 only earns
+// another one.
+func retryDelay(config *Config, attempt int, retryAfter time.Duration) time.Duration {
+	if retryAfter > 0 {
+		if retryAfter > maxRetryDelay {
+			return maxRetryDelay
+		}
+		return retryAfter
+	}
+
+	base := config.RetryDelay
+	if base <= 0 {
+		base = defaultRetryDelay
+	}
+
+	delay := base << attempt
+	// Shifting past the width of the type wraps; both cases mean "too long".
+	if delay > maxRetryDelay || delay <= 0 {
+		return maxRetryDelay
+	}
+	return delay
+}
+
+// parseRetryAfter reads the delay-seconds form of Retry-After, which is what
+// GitLab sends. The HTTP-date form is ignored rather than guessed at.
+func parseRetryAfter(value string) time.Duration {
+	if value == "" {
+		return 0
+	}
+
+	seconds, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || seconds < 0 {
+		return 0
+	}
+
+	return time.Duration(seconds) * time.Second
+}
+
+// sleep waits for d, or returns early if the context is canceled first.
+func sleep(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func getProject(ctx context.Context, client *http.Client, config *Config) (*Project, error) {
@@ -761,6 +924,15 @@ func versionInfo() string {
 func getEnv(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
+	}
+	return defaultValue
+}
+
+func getEnvDuration(key string, defaultValue time.Duration) time.Duration {
+	if value := os.Getenv(key); value != "" {
+		if d, err := time.ParseDuration(value); err == nil {
+			return d
+		}
 	}
 	return defaultValue
 }
