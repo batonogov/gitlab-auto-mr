@@ -1627,6 +1627,7 @@ func clearRequiredParseEnv(t *testing.T) {
 		"CI_PROJECT_ID",
 		"CI_PROJECT_URL",
 		"GITLAB_USER_ID",
+		"GITLAB_AUTO_MR_TARGET_BRANCH",
 	} {
 		t.Setenv(key, "")
 	}
@@ -1742,6 +1743,62 @@ func TestParseFlags(t *testing.T) {
 			setup:    setRequiredParseEnv,
 			wantErr:  true,
 			sentinel: true,
+		},
+		{
+			name: "target-branch-from-env",
+			args: []string{"prog"},
+			setup: func(t *testing.T) {
+				setRequiredParseEnv(t)
+				t.Setenv("GITLAB_AUTO_MR_TARGET_BRANCH", "develop")
+			},
+			checkConfig: func(t *testing.T, c *Config) {
+				t.Helper()
+				if c.TargetBranch != "develop" {
+					t.Errorf("TargetBranch = %q, want %q", c.TargetBranch, "develop")
+				}
+			},
+		},
+		{
+			name: "target-branch-flag-overrides-env",
+			args: []string{"prog", "--target-branch", "release/1.x"},
+			setup: func(t *testing.T) {
+				setRequiredParseEnv(t)
+				t.Setenv("GITLAB_AUTO_MR_TARGET_BRANCH", "develop")
+			},
+			checkConfig: func(t *testing.T, c *Config) {
+				t.Helper()
+				if c.TargetBranch != "release/1.x" {
+					t.Errorf("TargetBranch = %q, want %q", c.TargetBranch, "release/1.x")
+				}
+			},
+		},
+		{
+			name: "target-branch-short-flag-overrides-env",
+			args: []string{"prog", "-t", "release/1.x"},
+			setup: func(t *testing.T) {
+				setRequiredParseEnv(t)
+				t.Setenv("GITLAB_AUTO_MR_TARGET_BRANCH", "develop")
+			},
+			checkConfig: func(t *testing.T, c *Config) {
+				t.Helper()
+				if c.TargetBranch != "release/1.x" {
+					t.Errorf("TargetBranch = %q, want %q", c.TargetBranch, "release/1.x")
+				}
+			},
+		},
+		{
+			name: "target-branch-unset-falls-through-to-project-default",
+			args: []string{"prog"},
+			setup: func(t *testing.T) {
+				setRequiredParseEnv(t)
+			},
+			checkConfig: func(t *testing.T, c *Config) {
+				t.Helper()
+				// run() substitutes the project's default branch when this is empty.
+				if c.TargetBranch != "" {
+					t.Errorf("TargetBranch = %q, want empty", c.TargetBranch)
+				}
+			},
 		},
 		{
 			name:  "success",
