@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -333,7 +334,7 @@ func TestSmartMRManagement(t *testing.T) {
 
 func TestCreateHTTPClient(t *testing.T) {
 	// Test secure client
-	client := createHTTPClient(false)
+	client := createHTTPClient(&Config{})
 	if client == nil {
 		t.Fatal("Expected non-nil client")
 	}
@@ -342,12 +343,19 @@ func TestCreateHTTPClient(t *testing.T) {
 	}
 
 	// Test insecure client
-	insecureClient := createHTTPClient(true)
+	insecureClient := createHTTPClient(&Config{Insecure: true})
 	if insecureClient == nil {
 		t.Fatal("Expected non-nil insecure client")
 	}
 	if insecureClient.Timeout != 30*time.Second {
 		t.Errorf("Expected timeout 30s, got %v", insecureClient.Timeout)
+	}
+
+	// An explicit --timeout wins; a zero value keeps the 30s default, so a
+	// Config built without one behaves as it always did.
+	custom := createHTTPClient(&Config{Timeout: 5 * time.Second})
+	if custom.Timeout != 5*time.Second {
+		t.Errorf("Expected timeout 5s, got %v", custom.Timeout)
 	}
 }
 
@@ -2450,6 +2458,255 @@ func TestRunContextCancellation(t *testing.T) {
 	// was ignored.
 	if elapsed > 5*time.Second {
 		t.Errorf("run() took %v, expected it to abort as soon as the context was canceled", elapsed)
+	}
+}
+
+// TestIsRetryable pins the retry policy: idempotent verbs may repeat on
+// transient answers, POST may repeat only when the request never left.
+func TestIsRetryable(t *testing.T) {
+	dialErr := &net.OpError{Op: "dial", Err: errors.New("connection refused")}
+	readErr := &net.OpError{Op: "read", Err: errors.New("connection reset by peer")}
+
+	tests := []struct {
+		name   string
+		method string
+		err    error
+		want   bool
+	}{
+		{"GET 500", http.MethodGet, &apiError{StatusCode: 500}, true},
+		{"GET 503", http.MethodGet, &apiError{StatusCode: 503}, true},
+		{"GET 429", http.MethodGet, &apiError{StatusCode: 429}, true},
+		{"GET 404", http.MethodGet, &apiError{StatusCode: 404}, false},
+		{"GET 400", http.MethodGet, &apiError{StatusCode: 400}, false},
+		{"PUT 502", http.MethodPut, &apiError{StatusCode: 502}, true},
+		{"POST 500 is not repeated", http.MethodPost, &apiError{StatusCode: 500}, false},
+		{"GET dial error", http.MethodGet, dialErr, true},
+		{"GET read error", http.MethodGet, readErr, true},
+		{"POST dial error", http.MethodPost, dialErr, true},
+		{"POST read error is not repeated", http.MethodPost, readErr, false},
+		{"unauthorized", http.MethodGet, errUnauthorized, false},
+		{"canceled", http.MethodGet, context.Canceled, false},
+		{"deadline exceeded", http.MethodGet, context.DeadlineExceeded, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isRetryable(tt.method, tt.err); got != tt.want {
+				t.Errorf("isRetryable(%s, %v) = %v, want %v", tt.method, tt.err, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRetryDelay(t *testing.T) {
+	config := &Config{RetryDelay: time.Second}
+
+	tests := []struct {
+		name       string
+		config     *Config
+		attempt    int
+		retryAfter time.Duration
+		want       time.Duration
+	}{
+		{"first attempt", config, 0, 0, time.Second},
+		{"doubles", config, 1, 0, 2 * time.Second},
+		{"doubles again", config, 2, 0, 4 * time.Second},
+		{"capped", config, 20, 0, maxRetryDelay},
+		{"no overflow", config, 64, 0, maxRetryDelay},
+		{"zero delay falls back to the default", &Config{}, 0, 0, defaultRetryDelay},
+		{"Retry-After wins", config, 3, 7 * time.Second, 7 * time.Second},
+		{"Retry-After is capped too", config, 0, time.Hour, maxRetryDelay},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := retryDelay(tt.config, tt.attempt, tt.retryAfter); got != tt.want {
+				t.Errorf("retryDelay(attempt=%d, retryAfter=%s) = %s, want %s",
+					tt.attempt, tt.retryAfter, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseRetryAfter(t *testing.T) {
+	tests := []struct {
+		value string
+		want  time.Duration
+	}{
+		{"", 0},
+		{"5", 5 * time.Second},
+		{" 12 ", 12 * time.Second},
+		{"0", 0},
+		{"-1", 0},
+		{"Wed, 21 Oct 2015 07:28:00 GMT", 0},
+		{"nonsense", 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.value, func(t *testing.T) {
+			if got := parseRetryAfter(tt.value); got != tt.want {
+				t.Errorf("parseRetryAfter(%q) = %s, want %s", tt.value, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestDoRequestRetries covers issue #145 end-to-end against a server that fails
+// a fixed number of times before succeeding.
+func TestDoRequestRetries(t *testing.T) {
+	tests := []struct {
+		name         string
+		method       string
+		failures     int
+		failStatus   int
+		retries      int
+		wantAttempts int
+		wantErr      bool
+	}{
+		{"GET recovers from 503", http.MethodGet, 2, 503, 2, 3, false},
+		{"GET gives up after the last retry", http.MethodGet, 5, 503, 2, 3, true},
+		{"GET does not retry 404", http.MethodGet, 5, 404, 2, 1, true},
+		{"POST does not retry 503", http.MethodPost, 5, 503, 2, 1, true},
+		{"no retries configured", http.MethodGet, 1, 500, 0, 1, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var attempts int
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				attempts++
+				if attempts <= tt.failures {
+					w.WriteHeader(tt.failStatus)
+					return
+				}
+				if _, err := w.Write([]byte(`{"ok":true}`)); err != nil {
+					t.Errorf("write response: %v", err)
+				}
+			}))
+			defer server.Close()
+
+			config := &Config{
+				PrivateToken: "test-token",
+				ProjectID:    123,
+				GitLabURL:    server.URL,
+				Retries:      tt.retries,
+				RetryDelay:   time.Millisecond,
+			}
+
+			var reqBody any
+			if tt.method == http.MethodPost {
+				reqBody = map[string]string{"title": "x"}
+			}
+
+			_, err := doRequest(context.Background(), server.Client(), config, tt.method, "projects/123", reqBody)
+
+			if tt.wantErr && err == nil {
+				t.Error("expected an error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+			if attempts != tt.wantAttempts {
+				t.Errorf("attempts = %d, want %d", attempts, tt.wantAttempts)
+			}
+		})
+	}
+}
+
+// TestDoRequestRespectsRetryAfter checks that a 429 carrying Retry-After waits
+// for the interval GitLab asked for rather than the configured backoff.
+func TestDoRequestRespectsRetryAfter(t *testing.T) {
+	var attempts int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attempts++
+		if attempts == 1 {
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		if _, err := w.Write([]byte(`{}`)); err != nil {
+			t.Errorf("write response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	config := &Config{
+		PrivateToken: "test-token",
+		ProjectID:    123,
+		GitLabURL:    server.URL,
+		Retries:      1,
+		RetryDelay:   time.Millisecond, // far shorter than the Retry-After
+	}
+
+	start := time.Now()
+	if _, err := doRequest(context.Background(), server.Client(), config,
+		http.MethodGet, "projects/123", nil); err != nil {
+		t.Fatalf("doRequest() error = %v", err)
+	}
+	elapsed := time.Since(start)
+
+	if attempts != 2 {
+		t.Errorf("attempts = %d, want 2", attempts)
+	}
+	if elapsed < time.Second {
+		t.Errorf("waited %s, expected at least the 1s from Retry-After", elapsed)
+	}
+}
+
+// TestDoRequestRetrySendsBodyAgain guards against the reader being consumed by
+// the first attempt: a retried PUT must send the same payload.
+func TestDoRequestRetrySendsBodyAgain(t *testing.T) {
+	var bodies []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read body: %v", err)
+		}
+		bodies = append(bodies, string(body))
+		if len(bodies) == 1 {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		if _, werr := w.Write([]byte(`{}`)); werr != nil {
+			t.Errorf("write response: %v", werr)
+		}
+	}))
+	defer server.Close()
+
+	config := &Config{
+		PrivateToken: "test-token",
+		ProjectID:    123,
+		GitLabURL:    server.URL,
+		Retries:      1,
+		RetryDelay:   time.Millisecond,
+	}
+
+	if _, err := doRequest(context.Background(), server.Client(), config,
+		http.MethodPut, "projects/123/merge_requests/1", map[string]string{"title": "x"}); err != nil {
+		t.Fatalf("doRequest() error = %v", err)
+	}
+
+	if len(bodies) != 2 {
+		t.Fatalf("got %d attempts, want 2", len(bodies))
+	}
+	if bodies[0] != bodies[1] {
+		t.Errorf("retry sent %q, first attempt sent %q", bodies[1], bodies[0])
+	}
+}
+
+// TestSleepRespectsContext checks that a canceled context ends the backoff wait
+// immediately instead of blocking for the full delay.
+func TestSleepRespectsContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	start := time.Now()
+	err := sleep(ctx, time.Hour)
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("expected context.Canceled, got %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Errorf("sleep returned after %s, expected it to be immediate", elapsed)
 	}
 }
 
