@@ -1809,3 +1809,89 @@ func TestParseFlags(t *testing.T) {
 		})
 	}
 }
+
+func TestTriggerMRPipeline(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			t.Errorf("Expected POST method, got %s", r.Method)
+		}
+		if !strings.HasSuffix(r.URL.Path, "/merge_requests/42/pipelines") {
+			t.Errorf("Expected path ending with /merge_requests/42/pipelines, got %s", r.URL.Path)
+		}
+		if r.Header.Get("PRIVATE-TOKEN") != "test-token" {
+			t.Errorf("Expected PRIVATE-TOKEN header, got %s", r.Header.Get("PRIVATE-TOKEN"))
+		}
+
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(Pipeline{ID: 7, Status: "created", WebURL: "https://gitlab.example.com/p/7"})
+	}))
+	defer server.Close()
+
+	client := &http.Client{}
+	config := &Config{
+		GitLabURL:    server.URL,
+		ProjectID:    123,
+		PrivateToken: "test-token",
+	}
+
+	if err := triggerMRPipeline(client, config, 42); err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+}
+
+// A missing IID must not fail the run: the MR itself has already been created.
+func TestTriggerMRPipelineZeroIID(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		t.Error("Expected no request when MR IID is unknown")
+	}))
+	defer server.Close()
+
+	client := &http.Client{}
+	config := &Config{
+		GitLabURL:    server.URL,
+		ProjectID:    123,
+		PrivateToken: "test-token",
+	}
+
+	if err := triggerMRPipeline(client, config, 0); err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+}
+
+func TestTriggerMRPipelineErrors(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+		body       string
+		wantErr    string
+	}{
+		{"unauthorized", http.StatusUnauthorized, "", "unauthorized access"},
+		{"no jobs for MR pipelines", http.StatusBadRequest, `{"message":"No stages / jobs"}`, "refused to create"},
+		{"server error", http.StatusInternalServerError, "boom", "HTTP 500"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(tt.statusCode)
+				w.Write([]byte(tt.body))
+			}))
+			defer server.Close()
+
+			client := &http.Client{}
+			config := &Config{
+				GitLabURL:    server.URL,
+				ProjectID:    123,
+				PrivateToken: "test-token",
+			}
+
+			err := triggerMRPipeline(client, config, 42)
+			if err == nil {
+				t.Fatal("Expected an error, got nil")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("Expected error containing %q, got %v", tt.wantErr, err)
+			}
+		})
+	}
+}

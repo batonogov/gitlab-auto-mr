@@ -56,6 +56,7 @@ type Config struct {
 	UpdateMR           bool
 	CreateOnly         bool
 	AutoMerge          bool
+	TriggerPipeline    bool
 }
 
 type Project struct {
@@ -71,6 +72,12 @@ type MergeRequest struct {
 	SourceBranch string `json:"source_branch"`
 	TargetBranch string `json:"target_branch"`
 	State        string `json:"state"`
+}
+
+type Pipeline struct {
+	ID     int    `json:"id"`
+	Status string `json:"status"`
+	WebURL string `json:"web_url"`
 }
 
 type Issue struct {
@@ -164,6 +171,8 @@ func parseFlags() (*Config, error) {
 	flag.BoolVar(&config.UpdateMR, "update-mr", false, "Update existing MR instead of creating new one")
 	flag.BoolVar(&config.CreateOnly, "create-only", false, "Only create new MR, fail if MR already exists")
 	flag.BoolVar(&config.AutoMerge, "auto-merge", false, "Enable merge when pipeline succeeds (auto-merge)")
+	flag.BoolVar(&config.TriggerPipeline, "trigger-pipeline", false,
+		"Create a merge request pipeline after the MR is created")
 	flag.BoolVar(&showVersion, "version", false, "Show version information and exit")
 	flag.BoolVar(&showVersion, "v", false, "Show version information and exit (short)")
 
@@ -296,6 +305,12 @@ func run(config *Config) error {
 		return err
 	}
 
+	if config.TriggerPipeline {
+		if err := triggerMRPipeline(client, config, mrIID); err != nil {
+			return fmt.Errorf("failed to trigger merge request pipeline: %v", err)
+		}
+	}
+
 	if config.AutoMerge {
 		return enableAutoMerge(client, config, mrIID)
 	}
@@ -410,6 +425,60 @@ func enableAutoMerge(client *http.Client, config *Config, mrIID int) error {
 
 	fmt.Printf("Auto-merge enabled for MR (IID: %d)\n", mrIID)
 	return nil
+}
+
+// triggerMRPipeline asks GitLab to create a merge request pipeline for an
+// existing MR.
+//
+// GitLab does not start one on its own when an MR is created through the API
+// for a commit that already has a branch pipeline. A CI configuration whose
+// jobs run only on `merge_request_event` would therefore never see the MR, and
+// the missing checks are easy to mistake for passing ones.
+func triggerMRPipeline(client *http.Client, config *Config, mrIID int) error {
+	if mrIID == 0 {
+		fmt.Println("Warning: could not determine MR IID, skipping pipeline trigger")
+		return nil
+	}
+
+	apiURL := fmt.Sprintf(
+		"%s/api/v4/projects/%d/merge_requests/%d/pipelines",
+		config.GitLabURL, config.ProjectID, mrIID,
+	)
+
+	req, err := http.NewRequest("POST", apiURL, http.NoBody)
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("PRIVATE-TOKEN", config.PrivateToken)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case 200, 201:
+		var pipeline Pipeline
+		if err := json.NewDecoder(resp.Body).Decode(&pipeline); err != nil {
+			return fmt.Errorf("pipeline created but response could not be read: %v", err)
+		}
+		fmt.Printf("Merge request pipeline created (ID: %d, status: %s)\n", pipeline.ID, pipeline.Status)
+		return nil
+	case 401:
+		return fmt.Errorf("unauthorized access, check your access token permissions")
+	case 400:
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf(
+			"GitLab refused to create the pipeline, "+
+				"the CI configuration may define no jobs for merge request pipelines: %s",
+			string(respBody),
+		)
+	default:
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBody))
+	}
 }
 
 func createHTTPClient(insecure bool) *http.Client {
