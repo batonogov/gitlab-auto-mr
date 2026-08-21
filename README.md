@@ -23,6 +23,10 @@ Docker images are automatically built and published to GitHub Container Registry
 - `vX.Y` - Latest patch version of a minor release
 - `vX` - Latest minor and patch version of a major release (e.g., `v1`)
 
+The image runs as uid `10001`, not root. The tool itself only needs outbound
+HTTPS, but anything else in the same job that writes to the workspace must be
+able to do so as that user.
+
 ### Pull the Image
 
 ```bash
@@ -206,9 +210,17 @@ Skipping pipeline creation; pass --force-pipeline to create another.
 
 That is what keeps a retried job, a manual re-run, or a later run against the
 same MR from stacking up pipelines for one commit. Use `--force-pipeline` when
-re-running the checks is exactly the point. If the pipeline list cannot be read,
-the tool creates one anyway: a duplicate is a better outcome than checks that
-silently did not run.
+re-running the checks is exactly the point — including when the existing
+pipeline for that commit failed, since the check looks at the commit, not at the
+result.
+
+Only pipelines GitLab reports as merge request pipelines count. The branch
+pipeline running this job is attached to the same MR and the same commit, and
+treating it as a match would mean never creating the merge request pipeline at
+all. If the pipeline list cannot be read, the tool creates one anyway: a
+duplicate is a better outcome than checks that silently did not run. The same
+applies to projects using merged results pipelines, where the pipeline's commit
+is a simulated merge and never equals the branch head.
 
 Two things to expect:
 
