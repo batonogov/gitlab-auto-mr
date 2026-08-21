@@ -259,6 +259,9 @@ What gets retried depends on what a repeat could do:
 timeout could open a second merge request. A failure to dial is safe to repeat,
 because the request demonstrably never reached GitLab.
 
+A request that outran `--timeout` counts as a network error here, so a hung GET
+is retried. Ctrl-C is not: once the caller has given up, nothing is retried.
+
 A `Retry-After` header — which GitLab sends when rate limiting — takes
 precedence over the backoff, capped at 30s. 4xx answers other than 429 are never
 retried: they are real answers, and repeating them only delays the error.
