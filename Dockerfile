@@ -24,15 +24,17 @@ FROM alpine:3.24.1
 
 RUN apk --no-cache --no-scripts add ca-certificates
 
+# Run as a non-root user; the tool only needs to make outbound HTTPS calls
+RUN adduser -D -H -u 10001 app
+
 WORKDIR /app
 
-# Copy the binary from builder stage
+# Copy the binary from builder stage (COPY --from preserves the executable bit)
 COPY --from=builder /app/gitlab_auto_mr .
-
-# Make it executable
-RUN chmod +x ./gitlab_auto_mr
 
 # Add to PATH
 ENV PATH="/app:${PATH}"
+
+USER app
 
 CMD ["./gitlab_auto_mr"]
