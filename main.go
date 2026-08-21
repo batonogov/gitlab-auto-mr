@@ -74,6 +74,7 @@ type MergeRequest struct {
 	SourceBranch string `json:"source_branch"`
 	TargetBranch string `json:"target_branch"`
 	State        string `json:"state"`
+	WebURL       string `json:"web_url"`
 }
 
 type Pipeline struct {
@@ -262,6 +263,7 @@ func checkMRExists(config *Config, existingMR *MergeRequest) {
 	} else {
 		fmt.Printf("Merge request exists: %s (IID: %d)\n",
 			existingMR.Title, existingMR.IID)
+		printMRURL(existingMR)
 	}
 }
 
@@ -350,6 +352,7 @@ func handleMR(
 				existingMR.Title, existingMR.IID,
 			)
 		}
+		printMRURL(existingMR)
 		return existingMR.IID, nil
 
 	case existingMR != nil:
@@ -381,6 +384,7 @@ func handleUpdateMR(
 	}
 
 	fmt.Printf("Updated existing MR %s (IID: %d)\n", title, existingMR.IID)
+	printMRURL(existingMR)
 	return existingMR.IID, nil
 }
 
@@ -408,6 +412,7 @@ func handleCreateMR(
 	}
 
 	fmt.Printf("Created a new MR %s, assigned to you.\n", title)
+	printMRURL(createdMR)
 	return createdMR.IID, nil
 }
 
@@ -466,6 +471,17 @@ func mergeLabels(base, extra []string) []string {
 		return nil
 	}
 	return merged
+}
+
+// printMRURL writes the MR's browser URL so it can be clicked straight out of a
+// CI job log. The URL comes from the API response rather than being assembled
+// locally: --gitlab-url is only the instance host, so the project path with its
+// namespace is not knowable here. Nothing is printed if GitLab omitted web_url.
+func printMRURL(mr *MergeRequest) {
+	if mr == nil || mr.WebURL == "" {
+		return
+	}
+	fmt.Printf("MR URL: %s\n", mr.WebURL)
 }
 
 func enableAutoMerge(client *http.Client, config *Config, mrIID int) error {
