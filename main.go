@@ -756,7 +756,7 @@ func doRequest(
 			return respBody, nil
 		}
 
-		if attempt >= config.Retries || !isRetryable(method, err) {
+		if attempt >= config.Retries || !isRetryable(ctx, method, err) {
 			return nil, err
 		}
 
@@ -821,9 +821,16 @@ func sendRequest(
 // same change twice. POST is not — retrying POST /merge_requests after a
 // timeout could open a second MR — so it is repeated only when the request
 // demonstrably never reached GitLab, which is what a dial failure means.
-func isRetryable(method string, err error) bool {
-	if errors.Is(err, errUnauthorized) || errors.Is(err, context.Canceled) ||
-		errors.Is(err, context.DeadlineExceeded) {
+//
+// Whether the caller gave up is read from ctx, not from err. A --timeout that
+// elapsed also surfaces as context.DeadlineExceeded, and that one is a
+// transient failure worth repeating — the very case retries exist for.
+func isRetryable(ctx context.Context, method string, err error) bool {
+	if ctx.Err() != nil {
+		return false
+	}
+
+	if errors.Is(err, errUnauthorized) {
 		return false
 	}
 
