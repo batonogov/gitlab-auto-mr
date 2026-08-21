@@ -142,6 +142,8 @@ create_only:
 
 - `GITLAB_AUTO_MR_TARGET_BRANCH` - Target branch for the MR. Overridden by
   `--target-branch`/`-t`; when neither is set, the project's default branch is used.
+- `GITLAB_AUTO_MR_LABELS` - Labels for the MR (comma-separated). Overridden by `--label`.
+- `GITLAB_AUTO_MR_MILESTONE` - Milestone ID for the MR. Overridden by `--milestone`.
 
 ### CLI Options
 
@@ -153,6 +155,8 @@ create_only:
 | `--description`         | `-d`  | Path to description file                       | -                      |
 | `--remove-branch`       | `-r`  | Delete source branch after merge               | `false`                |
 | `--squash-commits`      | `-s`  | Squash commits on merge                        | `false`                |
+| `--label`               |       | Labels for the MR, comma-separated (`GITLAB_AUTO_MR_LABELS`) | -         |
+| `--milestone`           |       | Milestone ID for the MR (`GITLAB_AUTO_MR_MILESTONE`) | -                  |
 | `--use-issue-name`      | `-i`  | Use issue data from branch name                | `false`                |
 | `--allow-collaboration` | `-a`  | Allow commits from merge target members        | `false`                |
 | `--reviewer-id`         |       | Reviewer user ID(s) (comma-separated)          | -                      |
@@ -192,28 +196,6 @@ Two things to expect:
   role on the project. A `CI_JOB_TOKEN` cannot be used: the Merge Requests API
   is read-only for job tokens, so it can neither create the MR nor request a
   pipeline for it.
-
-## Operating
-
-The tool acts on behalf of whoever owns `GITLAB_PRIVATE_TOKEN`. That dependency is
-easy to lose track of: merge requests start appearing "by themselves", and months
-later nobody remembers that behind them stands a live account holding an
-`api`-scoped token.
-
-- **Use a service account, not a person.** A personal token disappears when that
-  person leaves the company or rotates their credentials, and every MR the tool
-  opens is attributed to them.
-- **Give the account Developer on the project — no more.** That is enough to read
-  the project and to create, update and merge merge requests.
-- **`CI_JOB_TOKEN` cannot be substituted.** The Merge Requests API is read-only for
-  job tokens, so a personal or project access token with the `api` scope is
-  required.
-- **Plan for rotation.** GitLab no longer issues non-expiring personal access
-  tokens, so expiry is scheduled work. When the token expires, MR creation simply
-  stops — and "no new MRs" is a symptom that is easy to miss for weeks.
-- **Name the account so its purpose is obvious** (for example
-  `svc-gitlab-auto-mr`). Whoever finds it during a directory cleanup will decide
-  its fate based on the name alone; an account called `test1` gets deleted.
 
 ## Building
 
@@ -295,6 +277,15 @@ docker build -t gitlab-auto-mr .
   --reviewer-id "12345,67890"
 ```
 
+### With Labels and a Milestone
+
+```bash
+gitlab-auto-mr --label "bug,priority::high" --milestone 5
+```
+
+Both combine with `--use-issue-name` rather than replacing it: labels are the
+union of the two sources, and an explicit `--milestone` wins over the issue's.
+
 ### Check if MR Exists
 
 ```bash
@@ -333,8 +324,6 @@ Error: unable to get project 12345: unauthorized access, check your access token
 ```
 
 - Check your `GITLAB_PRIVATE_TOKEN` is valid and has `api` scope
-- An expired or revoked token gives the same message — see [Operating](#operating)
-  for who the token should belong to and why rotation is scheduled work
 
 **MR Already Exists**
 

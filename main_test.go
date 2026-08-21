@@ -1603,6 +1603,188 @@ func TestRunWithIssueDataError(t *testing.T) {
 	}
 }
 
+func TestParseStringSlice(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected []string
+	}{
+		{"empty", "", nil},
+		{"single", "bug", []string{"bug"}},
+		{"multiple", "bug,priority::high", []string{"bug", "priority::high"}},
+		{"trims spaces", " bug , needs-review ", []string{"bug", "needs-review"}},
+		{"drops empty elements", "bug,,, ,review", []string{"bug", "review"}},
+		{"only separators", ",,,", nil},
+		{"keeps inner spaces", "needs review,done", []string{"needs review", "done"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseStringSlice(tt.input)
+			if len(got) != len(tt.expected) {
+				t.Fatalf("parseStringSlice(%q) = %v, want %v", tt.input, got, tt.expected)
+			}
+			for i := range got {
+				if got[i] != tt.expected[i] {
+					t.Errorf("parseStringSlice(%q)[%d] = %q, want %q", tt.input, i, got[i], tt.expected[i])
+				}
+			}
+		})
+	}
+}
+
+func TestMergeLabels(t *testing.T) {
+	tests := []struct {
+		name     string
+		base     []string
+		extra    []string
+		expected []string
+	}{
+		{"both empty", nil, nil, nil},
+		{"empty non-nil base stays nil", []string{}, nil, nil},
+		{"only base", []string{"bug"}, nil, []string{"bug"}},
+		{"only extra", nil, []string{"issue-label"}, []string{"issue-label"}},
+		{"union", []string{"bug"}, []string{"backend"}, []string{"bug", "backend"}},
+		{"deduplicates", []string{"bug", "backend"}, []string{"backend", "ci"}, []string{"bug", "backend", "ci"}},
+		{"base order first", []string{"z", "a"}, []string{"a", "m"}, []string{"z", "a", "m"}},
+		{"case sensitive", []string{"Bug"}, []string{"bug"}, []string{"Bug", "bug"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := mergeLabels(tt.base, tt.extra)
+			if len(got) != len(tt.expected) {
+				t.Fatalf("mergeLabels(%v, %v) = %v, want %v", tt.base, tt.extra, got, tt.expected)
+			}
+			for i := range got {
+				if got[i] != tt.expected[i] {
+					t.Errorf("mergeLabels(%v, %v)[%d] = %q, want %q", tt.base, tt.extra, i, got[i], tt.expected[i])
+				}
+			}
+		})
+	}
+}
+
+// newIssueMetadataServer serves a project, no existing MR, and an issue carrying
+// milestone 99 and labels ["from-issue", "shared"]. It records the create request.
+func newIssueMetadataServer(t *testing.T, captured *MRCreateRequest) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v4/projects/123" && r.Method == "GET":
+			w.Header().Set("Content-Type", "application/json")
+			if err := json.NewEncoder(w).Encode(Project{ID: 123, DefaultBranch: "main"}); err != nil {
+				t.Errorf("encode project: %v", err)
+			}
+		case r.URL.Path == "/api/v4/projects/123/merge_requests" && r.Method == "GET":
+			w.Header().Set("Content-Type", "application/json")
+			if _, err := w.Write([]byte("[]")); err != nil {
+				t.Errorf("write empty MR list: %v", err)
+			}
+		case r.URL.Path == "/api/v4/projects/123/issues/42" && r.Method == "GET":
+			w.Header().Set("Content-Type", "application/json")
+			if _, err := w.Write([]byte(
+				`{"id":1,"iid":42,"title":"Issue","labels":["from-issue","shared"],"milestone":{"id":99}}`,
+			)); err != nil {
+				t.Errorf("write issue: %v", err)
+			}
+		case r.URL.Path == "/api/v4/projects/123/merge_requests" && r.Method == "POST":
+			if err := json.NewDecoder(r.Body).Decode(captured); err != nil {
+				t.Errorf("decode create request: %v", err)
+			}
+			w.WriteHeader(http.StatusCreated)
+			if err := json.NewEncoder(w).Encode(MergeRequest{ID: 1, IID: 7}); err != nil {
+				t.Errorf("encode MR: %v", err)
+			}
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+}
+
+// TestRunLabelAndMilestone covers issues #73 and #74: labels and a milestone can
+// be set from the command line, they combine with --use-issue-name rather than
+// excluding it, and an explicit milestone wins over the issue's.
+func TestRunLabelAndMilestone(t *testing.T) {
+	tests := []struct {
+		name             string
+		labels           []string
+		milestoneID      int
+		useIssueName     bool
+		expectedLabels   []string
+		expectedMileston int
+	}{
+		{
+			name:             "flags only",
+			labels:           []string{"bug", "priority::high"},
+			milestoneID:      5,
+			expectedLabels:   []string{"bug", "priority::high"},
+			expectedMileston: 5,
+		},
+		{
+			name:             "issue only",
+			useIssueName:     true,
+			expectedLabels:   []string{"from-issue", "shared"},
+			expectedMileston: 99,
+		},
+		{
+			name:             "labels merge with issue labels",
+			labels:           []string{"bug", "shared"},
+			useIssueName:     true,
+			expectedLabels:   []string{"bug", "shared", "from-issue"},
+			expectedMileston: 99,
+		},
+		{
+			name:             "explicit milestone beats issue milestone",
+			milestoneID:      5,
+			useIssueName:     true,
+			expectedLabels:   []string{"from-issue", "shared"},
+			expectedMileston: 5,
+		},
+		{
+			name:             "neither",
+			expectedLabels:   nil,
+			expectedMileston: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var captured MRCreateRequest
+			server := newIssueMetadataServer(t, &captured)
+			defer server.Close()
+
+			config := &Config{
+				PrivateToken: "test-token",
+				SourceBranch: "feature/#42-test",
+				ProjectID:    123,
+				GitLabURL:    server.URL,
+				UserIDs:      []int{1},
+				TargetBranch: "main",
+				Labels:       tt.labels,
+				MilestoneID:  tt.milestoneID,
+				UseIssueName: tt.useIssueName,
+			}
+
+			if err := run(config); err != nil {
+				t.Fatalf("run() error = %v", err)
+			}
+
+			if captured.MilestoneID != tt.expectedMileston {
+				t.Errorf("MilestoneID = %d, want %d", captured.MilestoneID, tt.expectedMileston)
+			}
+			if len(captured.Labels) != len(tt.expectedLabels) {
+				t.Fatalf("Labels = %v, want %v", captured.Labels, tt.expectedLabels)
+			}
+			for i := range captured.Labels {
+				if captured.Labels[i] != tt.expectedLabels[i] {
+					t.Errorf("Labels[%d] = %q, want %q", i, captured.Labels[i], tt.expectedLabels[i])
+				}
+			}
+		})
+	}
+}
+
 // resetFlagSet replaces the package-level flag.CommandLine with a fresh FlagSet
 // using ContinueOnError. parseFlags re-registers every flag on flag.CommandLine,
 // so without a reset the second subtest would panic with "flag redefined".
@@ -1628,6 +1810,8 @@ func clearRequiredParseEnv(t *testing.T) {
 		"CI_PROJECT_URL",
 		"GITLAB_USER_ID",
 		"GITLAB_AUTO_MR_TARGET_BRANCH",
+		"GITLAB_AUTO_MR_LABELS",
+		"GITLAB_AUTO_MR_MILESTONE",
 	} {
 		t.Setenv(key, "")
 	}
@@ -1797,6 +1981,51 @@ func TestParseFlags(t *testing.T) {
 				// run() substitutes the project's default branch when this is empty.
 				if c.TargetBranch != "" {
 					t.Errorf("TargetBranch = %q, want empty", c.TargetBranch)
+				}
+			},
+		},
+		{
+			name: "labels-and-milestone-from-env",
+			args: []string{"prog"},
+			setup: func(t *testing.T) {
+				setRequiredParseEnv(t)
+				t.Setenv("GITLAB_AUTO_MR_LABELS", "bug, needs-review")
+				t.Setenv("GITLAB_AUTO_MR_MILESTONE", "5")
+			},
+			checkConfig: func(t *testing.T, c *Config) {
+				t.Helper()
+				if len(c.Labels) != 2 || c.Labels[0] != "bug" || c.Labels[1] != "needs-review" {
+					t.Errorf("Labels = %v, want [bug needs-review]", c.Labels)
+				}
+				if c.MilestoneID != 5 {
+					t.Errorf("MilestoneID = %d, want 5", c.MilestoneID)
+				}
+			},
+		},
+		{
+			name: "negative-milestone",
+			args: []string{"prog", "--milestone", "-1"},
+			setup: func(t *testing.T) {
+				setRequiredParseEnv(t)
+			},
+			wantErr:   true,
+			errSubstr: "--milestone must not be negative",
+		},
+		{
+			name: "labels-and-milestone-flags-override-env",
+			args: []string{"prog", "--label", "ci", "--milestone", "9"},
+			setup: func(t *testing.T) {
+				setRequiredParseEnv(t)
+				t.Setenv("GITLAB_AUTO_MR_LABELS", "bug")
+				t.Setenv("GITLAB_AUTO_MR_MILESTONE", "5")
+			},
+			checkConfig: func(t *testing.T, c *Config) {
+				t.Helper()
+				if len(c.Labels) != 1 || c.Labels[0] != "ci" {
+					t.Errorf("Labels = %v, want [ci]", c.Labels)
+				}
+				if c.MilestoneID != 9 {
+					t.Errorf("MilestoneID = %d, want 9", c.MilestoneID)
 				}
 			},
 		},
