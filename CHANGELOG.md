@@ -1,5 +1,51 @@
 # Changelog
 
+## [1.10.0](https://github.com/batonogov/gitlab-auto-mr/compare/v1.9.0...v1.10.0) (2026-08-21)
+
+
+### Features
+
+* add --ca-cert for a self-hosted GitLab behind a private CA ([#169](https://github.com/batonogov/gitlab-auto-mr/issues/169)) ([0e6f70b](https://github.com/batonogov/gitlab-auto-mr/commit/0e6f70b1ba3e759cc2ebeaf4f741a5011e2ae2af)), closes [#146](https://github.com/batonogov/gitlab-auto-mr/issues/146)
+* add --draft and --ready flags ([#171](https://github.com/batonogov/gitlab-auto-mr/issues/171)) ([d74e9e5](https://github.com/batonogov/gitlab-auto-mr/commit/d74e9e5d6dd542d364027b129a6191edd90c60cd)), closes [#76](https://github.com/batonogov/gitlab-auto-mr/issues/76)
+* add --label and --milestone flags ([#157](https://github.com/batonogov/gitlab-auto-mr/issues/157)) ([3ff0522](https://github.com/batonogov/gitlab-auto-mr/commit/3ff05227b0936b009004aff5210d0c5e7346c3f0))
+* print the MR URL after create, update and existence checks ([#158](https://github.com/batonogov/gitlab-auto-mr/issues/158)) ([5fdcc5e](https://github.com/batonogov/gitlab-auto-mr/commit/5fdcc5e3151d32147bc608bed9cbef8930d6f858)), closes [#75](https://github.com/batonogov/gitlab-auto-mr/issues/75)
+* retry transient GitLab failures, make the timeout configurable ([#166](https://github.com/batonogov/gitlab-auto-mr/issues/166)) ([ae47d7b](https://github.com/batonogov/gitlab-auto-mr/commit/ae47d7b89d46a1c2ba6f8d853ab3d820ad64c28b))
+* support GITLAB_AUTO_MR_TARGET_BRANCH ([#156](https://github.com/batonogov/gitlab-auto-mr/issues/156)) ([706e05d](https://github.com/batonogov/gitlab-auto-mr/commit/706e05d70ca83349088ec8a0e33dd4eabfc4b61b)), closes [#78](https://github.com/batonogov/gitlab-auto-mr/issues/78)
+
+
+### Bug Fixes
+
+* **ci:** restore the #nosec annotation dropped in the request-helper refactor ([#168](https://github.com/batonogov/gitlab-auto-mr/issues/168)) ([90e650c](https://github.com/batonogov/gitlab-auto-mr/commit/90e650c2d2b7aea66ebcb1327c75add494b59960))
+* count only merge request pipelines when skipping a duplicate ([#167](https://github.com/batonogov/gitlab-auto-mr/issues/167)) ([038a2bd](https://github.com/batonogov/gitlab-auto-mr/commit/038a2bdc7eea132f6a8c3a8651bfde8e0cc26cc9))
+* create at most one merge request pipeline per commit ([#165](https://github.com/batonogov/gitlab-auto-mr/issues/165)) ([31b5440](https://github.com/batonogov/gitlab-auto-mr/commit/31b54408b9d0df92c90160bbf4c0271d49a4baf1)), closes [#151](https://github.com/batonogov/gitlab-auto-mr/issues/151) [#150](https://github.com/batonogov/gitlab-auto-mr/issues/150)
+
+
+### Maintenance
+
+* **docker:** drop redundant chmod and run as non-root ([#154](https://github.com/batonogov/gitlab-auto-mr/issues/154)) ([2534d26](https://github.com/batonogov/gitlab-auto-mr/commit/2534d2603a7c69f23ffdf8412bf4c8332f6f65ba)), closes [#148](https://github.com/batonogov/gitlab-auto-mr/issues/148)
+* ignore the dash-named build artifact ([#159](https://github.com/batonogov/gitlab-auto-mr/issues/159)) ([23a6eb8](https://github.com/batonogov/gitlab-auto-mr/commit/23a6eb83709e1547a6a24b9a37a57d4d3932e126))
+
+
+### Documentation
+
+* document token ownership and fix stale CLAUDE.md notes ([#152](https://github.com/batonogov/gitlab-auto-mr/issues/152)) ([9acb9a9](https://github.com/batonogov/gitlab-auto-mr/commit/9acb9a98d70aba4090a1bdfbaa6fbf43459ddd2f)), closes [#149](https://github.com/batonogov/gitlab-auto-mr/issues/149) [#147](https://github.com/batonogov/gitlab-auto-mr/issues/147)
+* restore the Operating section lost in a rebase ([#170](https://github.com/batonogov/gitlab-auto-mr/issues/170)) ([a2b2484](https://github.com/batonogov/gitlab-auto-mr/commit/a2b2484dd5e99480d723997e6e7525f0409d8d9e))
+
+
+### Code Refactoring
+
+* route every API call through one request helper, with context ([#161](https://github.com/batonogov/gitlab-auto-mr/issues/161)) ([2c02691](https://github.com/batonogov/gitlab-auto-mr/commit/2c026912291f3ab66cd8ecbeb0cb000c6ce3f1bc)), closes [#144](https://github.com/batonogov/gitlab-auto-mr/issues/144) [#69](https://github.com/batonogov/gitlab-auto-mr/issues/69)
+
+
+### Tests
+
+* cover the untested failure paths in run, retries and env parsing ([#172](https://github.com/batonogov/gitlab-auto-mr/issues/172)) ([29517a6](https://github.com/batonogov/gitlab-auto-mr/commit/29517a6ac6451145ad28d25c2c974e269a7c21bc))
+
+
+### Continuous Integration
+
+* make golangci-lint and gosec blocking ([#155](https://github.com/batonogov/gitlab-auto-mr/issues/155)) ([8d9c778](https://github.com/batonogov/gitlab-auto-mr/commit/8d9c7783781f54157d4c364d7c58321df20fd574)), closes [#79](https://github.com/batonogov/gitlab-auto-mr/issues/79)
+
 ## [1.9.0](https://github.com/batonogov/gitlab-auto-mr/compare/v1.8.7...v1.9.0) (2026-08-21)
 
 
