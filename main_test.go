@@ -2880,6 +2880,207 @@ func TestCACertWithInsecureRejected(t *testing.T) {
 	}
 }
 
+func TestStripDraftMarker(t *testing.T) {
+	tests := []struct {
+		name  string
+		title string
+		want  string
+	}{
+		{"no marker", "Add a feature", "Add a feature"},
+		{"draft colon", "Draft: Add a feature", "Add a feature"},
+		{"lowercase", "draft: Add a feature", "Add a feature"},
+		{"uppercase", "DRAFT: Add a feature", "Add a feature"},
+		{"bracketed", "[Draft] Add a feature", "Add a feature"},
+		{"parenthesised", "(Draft) Add a feature", "Add a feature"},
+		{"wip colon", "WIP: Add a feature", "Add a feature"},
+		{"wip bracketed", "[WIP] Add a feature", "Add a feature"},
+		{"only the leading marker goes", "Draft: Draft: x", "Draft: x"},
+		{"marker inside the title stays", "Add the Draft: banner", "Add the Draft: banner"},
+		{"leading space", "  Draft: x", "x"},
+		{"marker only", "Draft:", ""},
+		{"empty", "", ""},
+		// "Drafting" starts with "draft" but is not a marker.
+		{"word starting with draft", "Drafting the release", "Drafting the release"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := stripDraftMarker(tt.title); got != tt.want {
+				t.Errorf("stripDraftMarker(%q) = %q, want %q", tt.title, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestMRTitleDraftReady covers issue #76: --draft and --ready set the state
+// GitLab derives from the title, without the caller having to know the prefix
+// convention, and --ready overrides the "Draft" default of --commit-prefix.
+func TestMRTitleDraftReady(t *testing.T) {
+	tests := []struct {
+		name       string
+		config     *Config
+		existingMR *MergeRequest
+		want       string
+	}{
+		{
+			name:   "default is unchanged",
+			config: &Config{CommitPrefix: "Draft", SourceBranch: "feature/x"},
+			want:   "Draft: feature/x",
+		},
+		{
+			name:   "draft with the default prefix does not double the marker",
+			config: &Config{CommitPrefix: "Draft", SourceBranch: "feature/x", Draft: true},
+			want:   "Draft: feature/x",
+		},
+		{
+			name:   "draft keeps a non-draft prefix and leads with the marker",
+			config: &Config{CommitPrefix: "Feature", SourceBranch: "feature/x", Draft: true},
+			want:   "Draft: Feature: feature/x",
+		},
+		{
+			name:   "draft with a custom title",
+			config: &Config{CommitPrefix: "", Title: "Add a feature", Draft: true},
+			want:   "Draft: Add a feature",
+		},
+		{
+			name:   "ready drops the Draft default of --commit-prefix",
+			config: &Config{CommitPrefix: "Draft", SourceBranch: "feature/x", Ready: true},
+			want:   "feature/x",
+		},
+		{
+			name:   "ready keeps a non-draft prefix",
+			config: &Config{CommitPrefix: "Feature", SourceBranch: "feature/x", Ready: true},
+			want:   "Feature: feature/x",
+		},
+		{
+			name:       "ready strips the marker from the existing MR title",
+			config:     &Config{CommitPrefix: "Draft", SourceBranch: "feature/x", Ready: true},
+			existingMR: &MergeRequest{Title: "Draft: Something a human wrote"},
+			want:       "Something a human wrote",
+		},
+		{
+			name:       "ready leaves an already-ready existing title alone",
+			config:     &Config{CommitPrefix: "Draft", SourceBranch: "feature/x", Ready: true},
+			existingMR: &MergeRequest{Title: "Something a human wrote"},
+			want:       "Something a human wrote",
+		},
+		{
+			name:       "an explicit --title beats the existing MR title",
+			config:     &Config{CommitPrefix: "", Title: "Renamed", Ready: true},
+			existingMR: &MergeRequest{Title: "Draft: Something a human wrote"},
+			want:       "Renamed",
+		},
+		{
+			name:       "without --ready the existing title is not consulted",
+			config:     &Config{CommitPrefix: "Draft", SourceBranch: "feature/x"},
+			existingMR: &MergeRequest{Title: "Something a human wrote"},
+			want:       "Draft: feature/x",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := mrTitle(tt.config, tt.existingMR); got != tt.want {
+				t.Errorf("mrTitle() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestRunReadyUpdatesTitle drives --ready through run(): the PUT must carry the
+// existing title with its marker removed, which is what actually flips GitLab's
+// derived draft flag.
+func TestRunReadyUpdatesTitle(t *testing.T) {
+	var sentTitle string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/api/v4/projects/123" && r.Method == http.MethodGet:
+			if err := json.NewEncoder(w).Encode(Project{ID: 123, DefaultBranch: "main"}); err != nil {
+				t.Errorf("encode project: %v", err)
+			}
+		case r.URL.Path == "/api/v4/projects/123/merge_requests" && r.Method == http.MethodGet:
+			if _, err := w.Write([]byte(`[{"id":1,"iid":42,"title":"Draft: Human written title"}]`)); err != nil {
+				t.Errorf("write MR list: %v", err)
+			}
+		case r.URL.Path == "/api/v4/projects/123/merge_requests/42" && r.Method == http.MethodPut:
+			var sent MRUpdateRequest
+			if err := json.NewDecoder(r.Body).Decode(&sent); err != nil {
+				t.Errorf("decode update request: %v", err)
+			}
+			sentTitle = sent.Title
+			if _, err := w.Write([]byte(`{"id":1,"iid":42}`)); err != nil {
+				t.Errorf("write update response: %v", err)
+			}
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	config := &Config{
+		PrivateToken: "test-token",
+		SourceBranch: "feature/test",
+		ProjectID:    123,
+		GitLabURL:    server.URL,
+		UserIDs:      []int{1},
+		TargetBranch: "main",
+		CommitPrefix: "Draft",
+		UpdateMR:     true,
+		Ready:        true,
+	}
+
+	if err := run(context.Background(), config); err != nil {
+		t.Fatalf("run() error = %v", err)
+	}
+
+	if sentTitle != "Human written title" {
+		t.Errorf("title sent = %q, want %q", sentTitle, "Human written title")
+	}
+}
+
+// TestDraftReadyValidation pins the flag combinations that are refused rather
+// than silently resolved one way.
+func TestDraftReadyValidation(t *testing.T) {
+	tests := []struct {
+		name      string
+		config    *Config
+		errSubstr string
+	}{
+		{
+			name:      "draft with ready",
+			config:    &Config{Draft: true, Ready: true},
+			errSubstr: "--draft cannot be used with --ready",
+		},
+		{
+			name:      "draft with auto-merge",
+			config:    &Config{Draft: true, AutoMerge: true},
+			errSubstr: "--auto-merge cannot be used with --draft",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateConfig(tt.config)
+			if err == nil {
+				t.Fatal("expected an error, got nil")
+			}
+			if !strings.Contains(err.Error(), tt.errSubstr) {
+				t.Errorf("error = %v, want it to contain %q", err, tt.errSubstr)
+			}
+		})
+	}
+}
+
+// TestReadyAllowsAutoMerge is the counterpart: --ready is what makes the default
+// "Draft" commit prefix compatible with --auto-merge.
+func TestReadyAllowsAutoMerge(t *testing.T) {
+	config := &Config{AutoMerge: true, CommitPrefix: "Draft", Ready: true}
+	if err := validateConfig(config); err != nil {
+		t.Errorf("validateConfig() error = %v, want nil", err)
+	}
+}
+
 // resetFlagSet replaces the package-level flag.CommandLine with a fresh FlagSet
 // using ContinueOnError. parseFlags re-registers every flag on flag.CommandLine,
 // so without a reset the second subtest would panic with "flag redefined".
