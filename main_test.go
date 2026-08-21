@@ -1792,16 +1792,72 @@ func TestIsRetryable(t *testing.T) {
 		{"POST dial error", http.MethodPost, dialErr, true},
 		{"POST read error is not repeated", http.MethodPost, readErr, false},
 		{"unauthorized", http.MethodGet, errUnauthorized, false},
-		{"canceled", http.MethodGet, context.Canceled, false},
-		{"deadline exceeded", http.MethodGet, context.DeadlineExceeded, false},
+		// A --timeout that elapsed surfaces as DeadlineExceeded while the caller's
+		// context is still live: that is a transient failure, so GET repeats it.
+		{"GET request timeout", http.MethodGet, context.DeadlineExceeded, true},
+		{"POST request timeout is not repeated", http.MethodPost, context.DeadlineExceeded, false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := isRetryable(tt.method, tt.err); got != tt.want {
+			if got := isRetryable(context.Background(), tt.method, tt.err); got != tt.want {
 				t.Errorf("isRetryable(%s, %v) = %v, want %v", tt.method, tt.err, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestIsRetryableStopsOnCancellation checks that a caller who gave up ends the
+// retries, however transient the underlying failure looks.
+func TestIsRetryableStopsOnCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if isRetryable(ctx, http.MethodGet, &apiError{StatusCode: 503}) {
+		t.Error("expected no retry once the caller's context is done")
+	}
+}
+
+// TestDoRequestRetriesRequestTimeout is the end-to-end form of the same rule:
+// a request that outran --timeout is retried, and the retry succeeds.
+func TestDoRequestRetriesRequestTimeout(t *testing.T) {
+	var attempts int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts == 1 {
+			// Outlast the client timeout without hanging the test if it is not hit.
+			select {
+			case <-r.Context().Done():
+			case <-time.After(2 * time.Second):
+			}
+			return
+		}
+		if _, err := w.Write([]byte(`{"ok":true}`)); err != nil {
+			t.Errorf("write response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	config := &Config{
+		PrivateToken: "test-token",
+		ProjectID:    123,
+		GitLabURL:    server.URL,
+		Timeout:      100 * time.Millisecond,
+		Retries:      1,
+		RetryDelay:   time.Millisecond,
+	}
+
+	client := createHTTPClient(config)
+
+	body, err := doRequest(context.Background(), client, config, http.MethodGet, "projects/123", nil)
+	if err != nil {
+		t.Fatalf("doRequest() error = %v", err)
+	}
+	if string(body) != `{"ok":true}` {
+		t.Errorf("body = %q, want %q", string(body), `{"ok":true}`)
+	}
+	if attempts != 2 {
+		t.Errorf("attempts = %d, want 2", attempts)
 	}
 }
 
