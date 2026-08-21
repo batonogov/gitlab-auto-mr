@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.0](https://github.com/batonogov/gitlab-auto-mr/compare/v1.8.7...v1.9.0) (2026-08-21)
+
+
+### Features
+
+* add --trigger-pipeline to create a merge request pipeline ([#143](https://github.com/batonogov/gitlab-auto-mr/issues/143)) ([4cf8fef](https://github.com/batonogov/gitlab-auto-mr/commit/4cf8fefb6bcc64d640259fdfbcabd2371b4347d2))
+
 ## [1.8.7](https://github.com/batonogov/gitlab-auto-mr/compare/v1.8.6...v1.8.7) (2026-08-17)
 
 
