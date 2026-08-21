@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
@@ -11,9 +12,11 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -132,8 +135,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := run(config); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+	// Canceling on SIGINT/SIGTERM aborts the in-flight request instead of
+	// leaving the process to sit out the client timeout. stop() is called
+	// directly rather than deferred, since os.Exit below would skip a defer.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	runErr := run(ctx, config)
+	stop()
+
+	if runErr != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", runErr)
 		os.Exit(1)
 	}
 }
@@ -251,16 +261,16 @@ func checkMRExists(config *Config, existingMR *MergeRequest) {
 	}
 }
 
-func run(config *Config) error {
+func run(ctx context.Context, config *Config) error {
 	if err := validateConfig(config); err != nil {
 		return err
 	}
 
 	client := createHTTPClient(config.Insecure)
 
-	project, err := getProject(client, config)
+	project, err := getProject(ctx, client, config)
 	if err != nil {
-		return fmt.Errorf("unable to get project %d: %v", config.ProjectID, err)
+		return fmt.Errorf("unable to get project %d: %w", config.ProjectID, err)
 	}
 
 	if config.TargetBranch == "" {
@@ -271,9 +281,9 @@ func run(config *Config) error {
 		return err
 	}
 
-	existingMR, err := getExistingMR(client, config)
+	existingMR, err := getExistingMR(ctx, client, config)
 	if err != nil {
-		return fmt.Errorf("failed to check if MR exists: %v", err)
+		return fmt.Errorf("failed to check if MR exists: %w", err)
 	}
 
 	if config.MRExists {
@@ -300,26 +310,26 @@ func run(config *Config) error {
 	title := getMRTitle(config.CommitPrefix, config.Title, config.SourceBranch)
 	description := getDescriptionData(config.Description)
 
-	mrIID, err := handleMR(client, config, existingMR, title, description)
+	mrIID, err := handleMR(ctx, client, config, existingMR, title, description)
 	if err != nil {
 		return err
 	}
 
 	if config.TriggerPipeline {
-		if err := triggerMRPipeline(client, config, mrIID); err != nil {
-			return fmt.Errorf("failed to trigger merge request pipeline: %v", err)
+		if err := triggerMRPipeline(ctx, client, config, mrIID); err != nil {
+			return fmt.Errorf("failed to trigger merge request pipeline: %w", err)
 		}
 	}
 
 	if config.AutoMerge {
-		return enableAutoMerge(client, config, mrIID)
+		return enableAutoMerge(ctx, client, config, mrIID)
 	}
 
 	return nil
 }
 
 func handleMR(
-	client *http.Client, config *Config,
+	ctx context.Context, client *http.Client, config *Config,
 	existingMR *MergeRequest, title, description string,
 ) (int, error) {
 	switch {
@@ -339,15 +349,15 @@ func handleMR(
 		return existingMR.IID, nil
 
 	case existingMR != nil:
-		return handleUpdateMR(client, config, existingMR, title, description)
+		return handleUpdateMR(ctx, client, config, existingMR, title, description)
 
 	default:
-		return handleCreateMR(client, config, title, description)
+		return handleCreateMR(ctx, client, config, title, description)
 	}
 }
 
 func handleUpdateMR(
-	client *http.Client, config *Config,
+	ctx context.Context, client *http.Client, config *Config,
 	existingMR *MergeRequest, title, description string,
 ) (int, error) {
 	updateRequest := &MRUpdateRequest{
@@ -361,7 +371,7 @@ func handleUpdateMR(
 	}
 
 	if config.UseIssueName {
-		issueData, err := getIssueData(client, config)
+		issueData, err := getIssueData(ctx, client, config)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to fetch issue data: %v\n", err)
 		} else {
@@ -370,8 +380,8 @@ func handleUpdateMR(
 		}
 	}
 
-	if err := updateMR(client, config, existingMR.IID, updateRequest); err != nil {
-		return 0, fmt.Errorf("failed to update MR: %v", err)
+	if err := updateMR(ctx, client, config, existingMR.IID, updateRequest); err != nil {
+		return 0, fmt.Errorf("failed to update MR: %w", err)
 	}
 
 	fmt.Printf("Updated existing MR %s (IID: %d)\n", title, existingMR.IID)
@@ -379,7 +389,7 @@ func handleUpdateMR(
 }
 
 func handleCreateMR(
-	client *http.Client, config *Config,
+	ctx context.Context, client *http.Client, config *Config,
 	title, description string,
 ) (int, error) {
 	mrRequest := &MRCreateRequest{
@@ -395,7 +405,7 @@ func handleCreateMR(
 	}
 
 	if config.UseIssueName {
-		issueData, err := getIssueData(client, config)
+		issueData, err := getIssueData(ctx, client, config)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to fetch issue data: %v\n", err)
 		} else {
@@ -404,23 +414,23 @@ func handleCreateMR(
 		}
 	}
 
-	createdMR, err := createMR(client, config, mrRequest)
+	createdMR, err := createMR(ctx, client, config, mrRequest)
 	if err != nil {
-		return 0, fmt.Errorf("failed to create MR: %v", err)
+		return 0, fmt.Errorf("failed to create MR: %w", err)
 	}
 
 	fmt.Printf("Created a new MR %s, assigned to you.\n", title)
 	return createdMR.IID, nil
 }
 
-func enableAutoMerge(client *http.Client, config *Config, mrIID int) error {
+func enableAutoMerge(ctx context.Context, client *http.Client, config *Config, mrIID int) error {
 	if mrIID == 0 {
 		fmt.Println("Warning: could not determine MR IID, skipping auto-merge")
 		return nil
 	}
 
-	if err := acceptMR(client, config, mrIID); err != nil {
-		return fmt.Errorf("failed to enable auto-merge: %v", err)
+	if err := acceptMR(ctx, client, config, mrIID); err != nil {
+		return fmt.Errorf("failed to enable auto-merge: %w", err)
 	}
 
 	fmt.Printf("Auto-merge enabled for MR (IID: %d)\n", mrIID)
@@ -434,67 +444,53 @@ func enableAutoMerge(client *http.Client, config *Config, mrIID int) error {
 // for a commit that already has a branch pipeline. A CI configuration whose
 // jobs run only on `merge_request_event` would therefore never see the MR, and
 // the missing checks are easy to mistake for passing ones.
-func triggerMRPipeline(client *http.Client, config *Config, mrIID int) error {
+func triggerMRPipeline(ctx context.Context, client *http.Client, config *Config, mrIID int) error {
 	if mrIID == 0 {
 		fmt.Println("Warning: could not determine MR IID, skipping pipeline trigger")
 		return nil
 	}
 
-	apiURL := fmt.Sprintf(
-		"%s/api/v4/projects/%d/merge_requests/%d/pipelines",
-		config.GitLabURL, config.ProjectID, mrIID,
-	)
-
-	req, err := http.NewRequest("POST", apiURL, http.NoBody)
+	body, err := doRequest(ctx, client, config, http.MethodPost,
+		fmt.Sprintf("projects/%d/merge_requests/%d/pipelines", config.ProjectID, mrIID), nil)
 	if err != nil {
+		var apiErr *apiError
+		if errors.As(err, &apiErr) {
+			switch apiErr.StatusCode {
+			case http.StatusForbidden:
+				return fmt.Errorf(
+					"forbidden, the token owner needs at least the Developer role on the project " +
+						"to create pipelines",
+				)
+			case http.StatusBadRequest:
+				return fmt.Errorf(
+					"GitLab refused to create the pipeline, "+
+						"the CI configuration may define no jobs for merge request pipelines: %s",
+					apiErr.Body,
+				)
+			}
+		}
 		return err
 	}
 
-	req.Header.Set("PRIVATE-TOKEN", config.PrivateToken)
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	switch resp.StatusCode {
-	case 200, 201:
-		// The pipeline already exists at this point, so a response we cannot read
-		// is worth a warning but must not fail the run: the body is only used to
-		// tell the user what was created.
-		var pipeline Pipeline
-		if err := json.NewDecoder(resp.Body).Decode(&pipeline); err != nil {
-			fmt.Printf("Warning: merge request pipeline created but response could not be read: %v\n", err)
-			return nil
-		}
-		if pipeline.WebURL != "" {
-			fmt.Printf(
-				"Merge request pipeline created (ID: %d, status: %s): %s\n",
-				pipeline.ID, pipeline.Status, pipeline.WebURL,
-			)
-			return nil
-		}
-		fmt.Printf("Merge request pipeline created (ID: %d, status: %s)\n", pipeline.ID, pipeline.Status)
+	// The pipeline already exists at this point, so a response we cannot read is
+	// worth a warning but must not fail the run: the body is only used to tell
+	// the user what was created.
+	var pipeline Pipeline
+	if err := json.Unmarshal(body, &pipeline); err != nil {
+		fmt.Printf("Warning: merge request pipeline created but response could not be read: %v\n", err)
 		return nil
-	case 401:
-		return fmt.Errorf("unauthorized access, check your access token permissions")
-	case 403:
-		return fmt.Errorf(
-			"forbidden, the token owner needs at least the Developer role on the project " +
-				"to create pipelines",
-		)
-	case 400:
-		respBody, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf(
-			"GitLab refused to create the pipeline, "+
-				"the CI configuration may define no jobs for merge request pipelines: %s",
-			string(respBody),
-		)
-	default:
-		respBody, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBody))
 	}
+
+	if pipeline.WebURL != "" {
+		fmt.Printf(
+			"Merge request pipeline created (ID: %d, status: %s): %s\n",
+			pipeline.ID, pipeline.Status, pipeline.WebURL,
+		)
+		return nil
+	}
+
+	fmt.Printf("Merge request pipeline created (ID: %d, status: %s)\n", pipeline.ID, pipeline.Status)
+	return nil
 }
 
 func createHTTPClient(insecure bool) *http.Client {
@@ -512,15 +508,60 @@ func createHTTPClient(insecure bool) *http.Client {
 	return client
 }
 
-func getProject(client *http.Client, config *Config) (*Project, error) {
-	apiURL := fmt.Sprintf("%s/api/v4/projects/%d", config.GitLabURL, config.ProjectID)
+// apiError is returned by doRequest when GitLab answered with a status the
+// helper does not treat as success. Callers use errors.As to give the statuses
+// that mean something specific to their endpoint a message of their own; the
+// rest fall through to Error(), which is the wording every API function used to
+// build by hand.
+type apiError struct {
+	StatusCode int
+	Body       string
+}
 
-	req, err := http.NewRequest("GET", apiURL, http.NoBody)
+func (e *apiError) Error() string {
+	if e.Body == "" {
+		return fmt.Sprintf("HTTP %d", e.StatusCode)
+	}
+	return fmt.Sprintf("HTTP %d: %s", e.StatusCode, e.Body)
+}
+
+// errUnauthorized is returned for every 401. GitLab answers 401 for the same
+// reason on every endpoint, so the advice lives in one place rather than being
+// re-worded per function.
+var errUnauthorized = errors.New("unauthorized access, check your access token is valid and has the api scope")
+
+// doRequest performs one GitLab API call and returns the raw response body.
+//
+// path is relative to /api/v4 and must already be escaped. body, when non-nil,
+// is sent as JSON. Any 2xx is success; 401 yields errUnauthorized and every
+// other status yields *apiError carrying the code and body.
+//
+// Decoding is left to the caller: the bodies are single objects, small enough
+// to hold in memory, and each caller has its own wording for a malformed one.
+func doRequest(
+	ctx context.Context, client *http.Client, config *Config,
+	method, path string, body any,
+) ([]byte, error) {
+	apiURL := fmt.Sprintf("%s/api/v4/%s", config.GitLabURL, path)
+
+	var reader io.Reader = http.NoBody
+	if body != nil {
+		jsonData, err := json.Marshal(body)
+		if err != nil {
+			return nil, err
+		}
+		reader = bytes.NewBuffer(jsonData)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, apiURL, reader)
 	if err != nil {
 		return nil, err
 	}
 
 	req.Header.Set("PRIVATE-TOKEN", config.PrivateToken)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -528,16 +569,31 @@ func getProject(client *http.Client, config *Config) (*Project, error) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode == 401 {
-		return nil, fmt.Errorf("unauthorized access, check your access token is valid")
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
 	}
 
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+	if resp.StatusCode == http.StatusUnauthorized {
+		return nil, errUnauthorized
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return nil, &apiError{StatusCode: resp.StatusCode, Body: string(respBody)}
+	}
+
+	return respBody, nil
+}
+
+func getProject(ctx context.Context, client *http.Client, config *Config) (*Project, error) {
+	body, err := doRequest(ctx, client, config, http.MethodGet,
+		fmt.Sprintf("projects/%d", config.ProjectID), nil)
+	if err != nil {
+		return nil, err
 	}
 
 	var project Project
-	if err := json.NewDecoder(resp.Body).Decode(&project); err != nil {
+	if err := json.Unmarshal(body, &project); err != nil {
 		return nil, err
 	}
 
@@ -552,34 +608,21 @@ func validateMR(sourceBranch, targetBranch string) error {
 	return nil
 }
 
-func getExistingMR(client *http.Client, config *Config) (*MergeRequest, error) {
+func getExistingMR(ctx context.Context, client *http.Client, config *Config) (*MergeRequest, error) {
 	params := url.Values{}
 	params.Set("state", "opened")
 	params.Set("source_branch", config.SourceBranch)
 	params.Set("target_branch", config.TargetBranch)
 	params.Set("per_page", "1")
-	apiURL := fmt.Sprintf("%s/api/v4/projects/%d/merge_requests?%s",
-		config.GitLabURL, config.ProjectID, params.Encode())
 
-	req, err := http.NewRequest("GET", apiURL, http.NoBody)
+	body, err := doRequest(ctx, client, config, http.MethodGet,
+		fmt.Sprintf("projects/%d/merge_requests?%s", config.ProjectID, params.Encode()), nil)
 	if err != nil {
 		return nil, err
-	}
-
-	req.Header.Set("PRIVATE-TOKEN", config.PrivateToken)
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 
 	var mrs []MergeRequest
-	if err := json.NewDecoder(resp.Body).Decode(&mrs); err != nil {
+	if err := json.Unmarshal(body, &mrs); err != nil {
 		return nil, err
 	}
 
@@ -619,7 +662,7 @@ func getDescriptionData(descriptionPath string) string {
 	return string(data)
 }
 
-func getIssueData(client *http.Client, config *Config) (*Issue, error) {
+func getIssueData(ctx context.Context, client *http.Client, config *Config) (*Issue, error) {
 	re := regexp.MustCompile(`#(\d+)`)
 	matches := re.FindStringSubmatch(config.SourceBranch)
 	if len(matches) < 2 {
@@ -631,148 +674,84 @@ func getIssueData(client *http.Client, config *Config) (*Issue, error) {
 		return nil, fmt.Errorf("invalid issue number: %s", matches[1])
 	}
 
-	apiURL := fmt.Sprintf("%s/api/v4/projects/%d/issues/%d", config.GitLabURL, config.ProjectID, issueID)
-
-	req, err := http.NewRequest("GET", apiURL, http.NoBody)
+	body, err := doRequest(ctx, client, config, http.MethodGet,
+		fmt.Sprintf("projects/%d/issues/%d", config.ProjectID, issueID), nil)
 	if err != nil {
+		// Any answer from GitLab other than success means the issue is not
+		// usable here, whatever the status; transport errors are passed through.
+		var apiErr *apiError
+		if errors.As(err, &apiErr) {
+			return nil, fmt.Errorf("issue #%d not found", issueID)
+		}
 		return nil, err
-	}
-
-	req.Header.Set("PRIVATE-TOKEN", config.PrivateToken)
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("issue #%d not found", issueID)
 	}
 
 	var issue Issue
-	if err := json.NewDecoder(resp.Body).Decode(&issue); err != nil {
+	if err := json.Unmarshal(body, &issue); err != nil {
 		return nil, err
 	}
 
 	return &issue, nil
 }
 
-func createMR(client *http.Client, config *Config, mrRequest *MRCreateRequest) (*MergeRequest, error) {
-	apiURL := fmt.Sprintf("%s/api/v4/projects/%d/merge_requests", config.GitLabURL, config.ProjectID)
-
-	jsonData, err := json.Marshal(mrRequest)
+func createMR(
+	ctx context.Context, client *http.Client, config *Config, mrRequest *MRCreateRequest,
+) (*MergeRequest, error) {
+	body, err := doRequest(ctx, client, config, http.MethodPost,
+		fmt.Sprintf("projects/%d/merge_requests", config.ProjectID), mrRequest)
 	if err != nil {
 		return nil, err
 	}
 
-	req, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("PRIVATE-TOKEN", config.PrivateToken)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 201 {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
-	}
-
+	// GitLab always sends the created MR back, but an empty body is not a
+	// failure: the MR exists, only its IID is unknown.
 	var mr MergeRequest
-	if err := json.NewDecoder(resp.Body).Decode(&mr); err != nil {
-		if err == io.EOF {
-			return &mr, nil
-		}
+	if len(body) == 0 {
+		return &mr, nil
+	}
+
+	if err := json.Unmarshal(body, &mr); err != nil {
 		return nil, fmt.Errorf("MR created but response is invalid: %v", err)
 	}
 
 	return &mr, nil
 }
 
-func updateMR(client *http.Client, config *Config, mrIID int, updateRequest *MRUpdateRequest) error {
-	apiURL := fmt.Sprintf("%s/api/v4/projects/%d/merge_requests/%d", config.GitLabURL, config.ProjectID, mrIID)
-
-	jsonData, err := json.Marshal(updateRequest)
-	if err != nil {
-		return err
-	}
-
-	req, err := http.NewRequest("PUT", apiURL, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("PRIVATE-TOKEN", config.PrivateToken)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
-	}
-
-	return nil
+func updateMR(
+	ctx context.Context, client *http.Client, config *Config, mrIID int, updateRequest *MRUpdateRequest,
+) error {
+	_, err := doRequest(ctx, client, config, http.MethodPut,
+		fmt.Sprintf("projects/%d/merge_requests/%d", config.ProjectID, mrIID), updateRequest)
+	return err
 }
 
-func acceptMR(client *http.Client, config *Config, mrIID int) error {
-	apiURL := fmt.Sprintf("%s/api/v4/projects/%d/merge_requests/%d/merge", config.GitLabURL, config.ProjectID, mrIID)
-
+func acceptMR(ctx context.Context, client *http.Client, config *Config, mrIID int) error {
 	acceptRequest := &MRAcceptRequest{
 		MergeWhenPipelineSucceeds: true,
 		ShouldRemoveSourceBranch:  config.RemoveBranch,
 		Squash:                    config.SquashCommits,
 	}
 
-	jsonData, err := json.Marshal(acceptRequest)
-	if err != nil {
-		return err
+	_, err := doRequest(ctx, client, config, http.MethodPut,
+		fmt.Sprintf("projects/%d/merge_requests/%d/merge", config.ProjectID, mrIID), acceptRequest)
+
+	var apiErr *apiError
+	if errors.As(err, &apiErr) {
+		switch apiErr.StatusCode {
+		case http.StatusMethodNotAllowed:
+			return fmt.Errorf(
+				"merge request cannot be merged, " +
+					"the pipeline may not have started yet or other merge conditions are not met",
+			)
+		case http.StatusNotAcceptable:
+			return fmt.Errorf(
+				"merge request cannot be merged, " +
+					"there may be unresolved discussions or other blocking conditions",
+			)
+		}
 	}
 
-	req, err := http.NewRequest("PUT", apiURL, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("PRIVATE-TOKEN", config.PrivateToken)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	switch resp.StatusCode {
-	case 200:
-		return nil
-	case 401:
-		return fmt.Errorf("unauthorized access, check your access token permissions")
-	case 405:
-		return fmt.Errorf(
-			"merge request cannot be merged, " +
-				"the pipeline may not have started yet or other merge conditions are not met",
-		)
-	case 406:
-		return fmt.Errorf(
-			"merge request cannot be merged, " +
-				"there may be unresolved discussions or other blocking conditions",
-		)
-	default:
-		respBody, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBody))
-	}
+	return err
 }
 
 func versionInfo() string {
