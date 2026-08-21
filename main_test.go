@@ -1655,6 +1655,9 @@ func TestMergeLabels(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := mergeLabels(tt.base, tt.extra)
+			if tt.expected == nil && got != nil {
+				t.Errorf("mergeLabels(%v, %v) = %#v, want nil", tt.base, tt.extra, got)
+			}
 			if len(got) != len(tt.expected) {
 				t.Fatalf("mergeLabels(%v, %v) = %v, want %v", tt.base, tt.extra, got, tt.expected)
 			}
@@ -1822,6 +1825,118 @@ func captureOutput(t *testing.T, fn func()) string {
 	return out
 }
 
+// TestRunLabelAndMilestoneOnUpdate is the update-path counterpart of
+// TestRunLabelAndMilestone. It matters more than the create path: this is where
+// a regression could overwrite labels a person set on the MR by hand, or clear
+// them outright by sending an empty list.
+func TestRunLabelAndMilestoneOnUpdate(t *testing.T) {
+	tests := []struct {
+		name             string
+		labels           []string
+		milestoneID      int
+		useIssueName     bool
+		expectedLabels   []string
+		expectedMileston int
+	}{
+		{
+			name:             "flags only",
+			labels:           []string{"bug"},
+			milestoneID:      5,
+			expectedLabels:   []string{"bug"},
+			expectedMileston: 5,
+		},
+		{
+			name:             "merged with issue data",
+			labels:           []string{"bug", "shared"},
+			useIssueName:     true,
+			expectedLabels:   []string{"bug", "shared", "from-issue"},
+			expectedMileston: 99,
+		},
+		{
+			name:             "neither leaves both out of the request",
+			expectedLabels:   nil,
+			expectedMileston: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var raw []byte
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch {
+				case r.URL.Path == "/api/v4/projects/123" && r.Method == http.MethodGet:
+					if err := json.NewEncoder(w).Encode(Project{ID: 123, DefaultBranch: "main"}); err != nil {
+						t.Errorf("encode project: %v", err)
+					}
+				case r.URL.Path == "/api/v4/projects/123/merge_requests" && r.Method == http.MethodGet:
+					if _, err := w.Write([]byte(`[{"id":1,"iid":42,"title":"Old"}]`)); err != nil {
+						t.Errorf("write MR list: %v", err)
+					}
+				case r.URL.Path == "/api/v4/projects/123/issues/42" && r.Method == http.MethodGet:
+					if _, err := w.Write([]byte(
+						`{"id":1,"iid":42,"labels":["from-issue","shared"],"milestone":{"id":99}}`,
+					)); err != nil {
+						t.Errorf("write issue: %v", err)
+					}
+				case r.URL.Path == "/api/v4/projects/123/merge_requests/42" && r.Method == http.MethodPut:
+					body, err := io.ReadAll(r.Body)
+					if err != nil {
+						t.Errorf("read update body: %v", err)
+					}
+					raw = body
+					if _, err := w.Write([]byte(`{"id":1,"iid":42}`)); err != nil {
+						t.Errorf("write update response: %v", err)
+					}
+				default:
+					w.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			defer server.Close()
+
+			config := &Config{
+				PrivateToken: "test-token",
+				SourceBranch: "feature/#42-test",
+				ProjectID:    123,
+				GitLabURL:    server.URL,
+				UserIDs:      []int{1},
+				TargetBranch: "main",
+				UpdateMR:     true,
+				Labels:       tt.labels,
+				MilestoneID:  tt.milestoneID,
+				UseIssueName: tt.useIssueName,
+			}
+
+			if err := run(context.Background(), config); err != nil {
+				t.Fatalf("run() error = %v", err)
+			}
+
+			var sent MRUpdateRequest
+			if err := json.Unmarshal(raw, &sent); err != nil {
+				t.Fatalf("decode update request: %v", err)
+			}
+
+			if sent.MilestoneID != tt.expectedMileston {
+				t.Errorf("MilestoneID = %d, want %d", sent.MilestoneID, tt.expectedMileston)
+			}
+			if len(sent.Labels) != len(tt.expectedLabels) {
+				t.Fatalf("Labels = %v, want %v", sent.Labels, tt.expectedLabels)
+			}
+			for i := range sent.Labels {
+				if sent.Labels[i] != tt.expectedLabels[i] {
+					t.Errorf("Labels[%d] = %q, want %q", i, sent.Labels[i], tt.expectedLabels[i])
+				}
+			}
+
+			// An empty list would CLEAR the MR's labels, which is not the same
+			// as leaving them alone; assert on the wire, not on the struct.
+			if tt.expectedLabels == nil && strings.Contains(string(raw), `"labels"`) {
+				t.Errorf("update request carries a labels field: %s", raw)
+			}
+		})
+	}
+}
+
 // TestPrintMRURL covers issue #75: the MR's browser URL is printed after every
 // operation that identifies an MR, and nothing is printed when GitLab did not
 // return one.
@@ -1927,6 +2042,15 @@ func TestPrintMRURL(t *testing.T) {
 // pipeline was created. existingSHA, when non-empty, is the SHA of a pipeline
 // GitLab already has for the MR.
 func pipelineServer(t *testing.T, existingSHA string, listStatus int) (*httptest.Server, *int) {
+	return pipelineServerWithSource(t, existingSHA, pipelineSourceMergeRequest, listStatus)
+}
+
+// pipelineServerWithSource is pipelineServer with control over the `source` of
+// the pipeline the list endpoint reports, which is what separates a merge
+// request pipeline from the branch pipeline running the job.
+func pipelineServerWithSource(
+	t *testing.T, existingSHA, source string, listStatus int,
+) (*httptest.Server, *int) {
 	t.Helper()
 
 	created := 0
@@ -1947,6 +2071,7 @@ func pipelineServer(t *testing.T, existingSHA string, listStatus int) (*httptest
 			body := "[]"
 			if existingSHA != "" {
 				body = `[{"id":7,"status":"running","sha":"` + existingSHA +
+					`","source":"` + source +
 					`","web_url":"https://gitlab.example.com/p/-/pipelines/7"}]`
 			}
 			if _, err := w.Write([]byte(body)); err != nil {
@@ -2042,9 +2167,53 @@ func TestTriggerMRPipelineDeduplicates(t *testing.T) {
 	}
 }
 
-// TestRunTriggersPipelineOnUpdate covers issue #150: updating an existing MR
-// triggers a pipeline too, since the branch has moved. The MR carries a SHA
-// that has no pipeline yet, which is the case where a new one is wanted.
+// TestTriggerMRPipelineIgnoresBranchPipelines is the regression test for the
+// endpoint's actual semantics: GET .../merge_requests/:iid/pipelines lists every
+// pipeline attached to the MR, branch pipelines included. The branch pipeline
+// for the head commit is normally the one running this very job, so matching on
+// the commit alone would skip creating the merge request pipeline every time —
+// exactly the failure --trigger-pipeline exists to prevent.
+func TestTriggerMRPipelineIgnoresBranchPipelines(t *testing.T) {
+	const headSHA = "abc123def456"
+
+	tests := []struct {
+		name        string
+		source      string
+		wantCreated int
+	}{
+		{"branch pipeline for the same commit does not count", "push", 1},
+		{"scheduled pipeline for the same commit does not count", "schedule", 1},
+		{"merge request pipeline for the same commit counts", pipelineSourceMergeRequest, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server, created := pipelineServerWithSource(t, headSHA, tt.source, 0)
+			defer server.Close()
+
+			config := &Config{
+				PrivateToken:    "test-token",
+				ProjectID:       123,
+				GitLabURL:       server.URL,
+				TriggerPipeline: true,
+			}
+
+			err := triggerMRPipeline(context.Background(), server.Client(), config,
+				&MergeRequest{IID: 42, SHA: headSHA})
+			if err != nil {
+				t.Fatalf("triggerMRPipeline() error = %v", err)
+			}
+			if *created != tt.wantCreated {
+				t.Errorf("pipelines created = %d, want %d", *created, tt.wantCreated)
+			}
+		})
+	}
+}
+
+// TestRunTriggersPipelineOnUpdate pins the decision taken for issue #150:
+// updating an existing MR triggers a pipeline too, since the branch has moved.
+// The MR's head commit has no merge request pipeline of its own — only one for
+// an earlier commit — so the per-commit check must not stand in the way.
 func TestRunTriggersPipelineOnUpdate(t *testing.T) {
 	created := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -2063,7 +2232,9 @@ func TestRunTriggersPipelineOnUpdate(t *testing.T) {
 				t.Errorf("write update response: %v", err)
 			}
 		case r.URL.Path == "/api/v4/projects/123/merge_requests/42/pipelines" && r.Method == http.MethodGet:
-			if _, err := w.Write([]byte(`[{"id":7,"status":"success","sha":"oldsha"}]`)); err != nil {
+			if _, err := w.Write([]byte(
+				`[{"id":7,"status":"success","sha":"oldsha","source":"merge_request_event"}]`,
+			)); err != nil {
 				t.Errorf("write pipeline list: %v", err)
 			}
 		case r.URL.Path == "/api/v4/projects/123/merge_requests/42/pipelines" && r.Method == http.MethodPost:

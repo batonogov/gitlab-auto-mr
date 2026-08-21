@@ -34,6 +34,10 @@ const (
 	wipPrefix   = "wip"
 )
 
+// pipelineSourceMergeRequest is the `source` GitLab reports for a merge request
+// pipeline, as opposed to the `push` of an ordinary branch pipeline.
+const pipelineSourceMergeRequest = "merge_request_event"
+
 // errShowVersion is a sentinel error returned by parseFlags when --version has
 // been handled (version printed to stdout). Callers should treat it as a clean
 // exit with status 0 rather than a real error.
@@ -87,6 +91,8 @@ type Pipeline struct {
 	Status string `json:"status"`
 	WebURL string `json:"web_url"`
 	SHA    string `json:"sha"`
+	Source string `json:"source"`
+	Ref    string `json:"ref"`
 }
 
 type Issue struct {
@@ -603,8 +609,15 @@ func triggerMRPipeline(ctx context.Context, client *http.Client, config *Config,
 	return nil
 }
 
-// findPipelineForSHA returns the MR's existing pipeline for its head commit, or
-// nil when there is none.
+// findPipelineForSHA returns the MR's existing merge request pipeline for its
+// head commit, or nil when there is none.
+//
+// The endpoint lists every pipeline attached to the MR, branch pipelines
+// included — the docs' own example shows a plain branch ref. Matching on the
+// commit alone would therefore match the branch pipeline that is usually
+// running this very job, and skipping on that would mean never creating the
+// merge request pipeline this tool exists to create. Only pipelines GitLab
+// reports as merge_request_event count.
 //
 // With an unknown head SHA there is nothing to compare against, so it reports
 // no match and the caller creates a pipeline: a duplicate is a better outcome
@@ -628,7 +641,7 @@ func findPipelineForSHA(
 	}
 
 	for i := range pipelines {
-		if pipelines[i].SHA == mr.SHA {
+		if pipelines[i].Source == pipelineSourceMergeRequest && pipelines[i].SHA == mr.SHA {
 			return &pipelines[i], nil
 		}
 	}
