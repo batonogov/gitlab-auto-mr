@@ -225,3 +225,19 @@ smart_mr_conditional:
       fi
   rules:
     - if: $CI_COMMIT_BRANCH != $TARGET_BRANCH && $CI_PIPELINE_SOURCE == "push"
+
+# MR that gets its checks run: --trigger-pipeline asks GitLab for a merge
+# request pipeline, which it does not create on its own for a commit that
+# already has a branch pipeline. Without it, jobs guarded by
+# `$CI_PIPELINE_SOURCE == "merge_request_event"` never run for the new MR.
+mr_with_pipeline:
+  stage: create-mr
+  image: $GITLAB_AUTO_MR_IMAGE
+  script:
+    - |
+      gitlab_auto_mr \
+        --target-branch $TARGET_BRANCH \
+        --description $MR_DESCRIPTION_FILE \
+        --trigger-pipeline
+  rules:
+    - if: $CI_COMMIT_BRANCH != $TARGET_BRANCH && $CI_PIPELINE_SOURCE == "push"

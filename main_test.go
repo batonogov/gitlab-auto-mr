@@ -1866,6 +1866,7 @@ func TestTriggerMRPipelineErrors(t *testing.T) {
 		wantErr    string
 	}{
 		{"unauthorized", http.StatusUnauthorized, "", "unauthorized access"},
+		{"forbidden", http.StatusForbidden, "", "Developer role"},
 		{"no jobs for MR pipelines", http.StatusBadRequest, `{"message":"No stages / jobs"}`, "refused to create"},
 		{"server error", http.StatusInternalServerError, "boom", "HTTP 500"},
 	}
@@ -1893,5 +1894,116 @@ func TestTriggerMRPipelineErrors(t *testing.T) {
 				t.Errorf("Expected error containing %q, got %v", tt.wantErr, err)
 			}
 		})
+	}
+}
+
+// A response body we cannot parse must not fail the run: GitLab has already
+// created the pipeline, and the body is only used to report what was created.
+func TestTriggerMRPipelineUnreadableBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte("not json"))
+	}))
+	defer server.Close()
+
+	client := &http.Client{}
+	config := &Config{
+		GitLabURL:    server.URL,
+		ProjectID:    123,
+		PrivateToken: "test-token",
+	}
+
+	if err := triggerMRPipeline(client, config, 42); err != nil {
+		t.Errorf("Expected no error for an unreadable body, got %v", err)
+	}
+}
+
+// The pipeline must be requested through run(), and before auto-merge: enabling
+// merge-when-pipeline-succeeds is what the pipeline is needed for.
+func TestRunWithTriggerPipeline(t *testing.T) {
+	var calls []string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/api/v4/projects/123") && r.Method == "GET" &&
+			!strings.Contains(r.URL.Path, "merge_requests"):
+			json.NewEncoder(w).Encode(Project{ID: 123, Name: "test-project", DefaultBranch: "main"})
+		case strings.HasPrefix(r.URL.Path, "/api/v4/projects/123/merge_requests") && r.Method == "GET":
+			json.NewEncoder(w).Encode([]MergeRequest{})
+		case strings.HasSuffix(r.URL.Path, "/merge_requests") && r.Method == "POST":
+			calls = append(calls, "create")
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(MergeRequest{ID: 1, IID: 10, Title: "Test MR"})
+		case strings.HasSuffix(r.URL.Path, "/merge_requests/10/pipelines") && r.Method == "POST":
+			calls = append(calls, "pipeline")
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(Pipeline{ID: 7, Status: "created"})
+		case strings.HasSuffix(r.URL.Path, "/merge_requests/10/merge") && r.Method == "PUT":
+			calls = append(calls, "merge")
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(MergeRequest{ID: 1, IID: 10})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	config := &Config{
+		GitLabURL:       server.URL,
+		ProjectID:       123,
+		PrivateToken:    "test-token",
+		SourceBranch:    "feature/test",
+		TargetBranch:    "main",
+		UserIDs:         []int{1},
+		TriggerPipeline: true,
+		AutoMerge:       true,
+	}
+
+	if err := run(config); err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	want := []string{"create", "pipeline", "merge"}
+	if len(calls) != len(want) {
+		t.Fatalf("Expected calls %v, got %v", want, calls)
+	}
+	for i := range want {
+		if calls[i] != want[i] {
+			t.Fatalf("Expected calls %v, got %v", want, calls)
+		}
+	}
+}
+
+// Without the flag nothing extra is requested — the default behavior is unchanged.
+func TestRunWithoutTriggerPipeline(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/pipelines") && r.Method == "POST":
+			t.Error("Expected no pipeline request without --trigger-pipeline")
+		case strings.HasPrefix(r.URL.Path, "/api/v4/projects/123") && r.Method == "GET" &&
+			!strings.Contains(r.URL.Path, "merge_requests"):
+			json.NewEncoder(w).Encode(Project{ID: 123, Name: "test-project", DefaultBranch: "main"})
+		case strings.HasPrefix(r.URL.Path, "/api/v4/projects/123/merge_requests") && r.Method == "GET":
+			json.NewEncoder(w).Encode([]MergeRequest{})
+		case strings.HasSuffix(r.URL.Path, "/merge_requests") && r.Method == "POST":
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(MergeRequest{ID: 1, IID: 10, Title: "Test MR"})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	config := &Config{
+		GitLabURL:    server.URL,
+		ProjectID:    123,
+		PrivateToken: "test-token",
+		SourceBranch: "feature/test",
+		TargetBranch: "main",
+		UserIDs:      []int{1},
+	}
+
+	if err := run(config); err != nil {
+		t.Errorf("Expected no error, got %v", err)
 	}
 }

@@ -460,14 +460,30 @@ func triggerMRPipeline(client *http.Client, config *Config, mrIID int) error {
 
 	switch resp.StatusCode {
 	case 200, 201:
+		// The pipeline already exists at this point, so a response we cannot read
+		// is worth a warning but must not fail the run: the body is only used to
+		// tell the user what was created.
 		var pipeline Pipeline
 		if err := json.NewDecoder(resp.Body).Decode(&pipeline); err != nil {
-			return fmt.Errorf("pipeline created but response could not be read: %v", err)
+			fmt.Printf("Warning: merge request pipeline created but response could not be read: %v\n", err)
+			return nil
+		}
+		if pipeline.WebURL != "" {
+			fmt.Printf(
+				"Merge request pipeline created (ID: %d, status: %s): %s\n",
+				pipeline.ID, pipeline.Status, pipeline.WebURL,
+			)
+			return nil
 		}
 		fmt.Printf("Merge request pipeline created (ID: %d, status: %s)\n", pipeline.ID, pipeline.Status)
 		return nil
 	case 401:
 		return fmt.Errorf("unauthorized access, check your access token permissions")
+	case 403:
+		return fmt.Errorf(
+			"forbidden, the token owner needs at least the Developer role on the project " +
+				"to create pipelines",
+		)
 	case 400:
 		respBody, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf(
