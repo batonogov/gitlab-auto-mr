@@ -188,6 +188,28 @@ Two things to expect:
   is read-only for job tokens, so it can neither create the MR nor request a
   pipeline for it.
 
+## Operating
+
+The tool acts on behalf of whoever owns `GITLAB_PRIVATE_TOKEN`. That dependency is
+easy to lose track of: merge requests start appearing "by themselves", and months
+later nobody remembers that behind them stands a live account holding an
+`api`-scoped token.
+
+- **Use a service account, not a person.** A personal token disappears when that
+  person leaves the company or rotates their credentials, and every MR the tool
+  opens is attributed to them.
+- **Give the account Developer on the project — no more.** That is enough to read
+  the project and to create, update and merge merge requests.
+- **`CI_JOB_TOKEN` cannot be substituted.** The Merge Requests API is read-only for
+  job tokens, so a personal or project access token with the `api` scope is
+  required.
+- **Plan for rotation.** GitLab no longer issues non-expiring personal access
+  tokens, so expiry is scheduled work. When the token expires, MR creation simply
+  stops — and "no new MRs" is a symptom that is easy to miss for weeks.
+- **Name the account so its purpose is obvious** (for example
+  `svc-gitlab-auto-mr`). Whoever finds it during a directory cleanup will decide
+  its fate based on the name alone; an account called `test1` gets deleted.
+
 ## Building
 
 ### Prerequisites
@@ -306,6 +328,8 @@ Error: unable to get project 12345: unauthorized access, check your access token
 ```
 
 - Check your `GITLAB_PRIVATE_TOKEN` is valid and has `api` scope
+- An expired or revoked token gives the same message — see [Operating](#operating)
+  for who the token should belong to and why rotation is scheduled work
 
 **MR Already Exists**
 

@@ -30,7 +30,7 @@ Single-file application (`main.go`) with all logic:
 
 - **Config** struct holds all CLI flags parsed by `parseFlags()`
 - **run()** is the main orchestrator: get project → validate → check existing MR → create/update MR → optionally enable auto-merge
-- API functions (`getProject`, `getExistingMR`, `createMR`, `updateMR`, `acceptMR`) each handle one GitLab API endpoint
+- API functions (`getProject`, `getExistingMR`, `getIssueData`, `createMR`, `updateMR`, `acceptMR`) each handle one GitLab API endpoint
 - All HTTP calls use `*http.Client` and `*Config` as parameters for testability
 
 Tests (`main_test.go`) use `httptest.NewServer` to mock the GitLab API. Integration tests go through `run()` with a mock server.
@@ -47,5 +47,6 @@ Tests (`main_test.go`) use `httptest.NewServer` to mock the GitLab API. Integrat
 
 - `createMR` returns `(*MergeRequest, error)` — the returned MR is needed for auto-merge IID
 - Error messages from API functions include HTTP status and response body
-- `parseFlags()` calls `os.Exit(1)` on validation errors — not testable via `run()`
+- `parseFlags()` returns an `error` for every validation failure, so validation is testable directly; `os.Exit` lives only in `main()`
+- `parseFlags()` returns the sentinel `errShowVersion` after `--version` printed the version — `main()` treats it as a clean exit (status 0)
 - The `--update-mr` flag is required to update an existing MR; without it, the tool just informs and exits
