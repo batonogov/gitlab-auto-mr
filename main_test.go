@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"flag"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -334,7 +336,10 @@ func TestSmartMRManagement(t *testing.T) {
 
 func TestCreateHTTPClient(t *testing.T) {
 	// Test secure client
-	client := createHTTPClient(&Config{})
+	client, err := createHTTPClient(&Config{})
+	if err != nil {
+		t.Fatalf("createHTTPClient() error = %v", err)
+	}
 	if client == nil {
 		t.Fatal("Expected non-nil client")
 	}
@@ -343,7 +348,10 @@ func TestCreateHTTPClient(t *testing.T) {
 	}
 
 	// Test insecure client
-	insecureClient := createHTTPClient(&Config{Insecure: true})
+	insecureClient, err := createHTTPClient(&Config{Insecure: true})
+	if err != nil {
+		t.Fatalf("createHTTPClient() error = %v", err)
+	}
 	if insecureClient == nil {
 		t.Fatal("Expected non-nil insecure client")
 	}
@@ -353,7 +361,10 @@ func TestCreateHTTPClient(t *testing.T) {
 
 	// An explicit --timeout wins; a zero value keeps the 30s default, so a
 	// Config built without one behaves as it always did.
-	custom := createHTTPClient(&Config{Timeout: 5 * time.Second})
+	custom, err := createHTTPClient(&Config{Timeout: 5 * time.Second})
+	if err != nil {
+		t.Fatalf("createHTTPClient() error = %v", err)
+	}
 	if custom.Timeout != 5*time.Second {
 		t.Errorf("Expected timeout 5s, got %v", custom.Timeout)
 	}
@@ -2369,7 +2380,10 @@ func TestDoRequestRetriesRequestTimeout(t *testing.T) {
 		RetryDelay:   time.Millisecond,
 	}
 
-	client := createHTTPClient(config)
+	client, err := createHTTPClient(config)
+	if err != nil {
+		t.Fatalf("createHTTPClient() error = %v", err)
+	}
 
 	body, err := doRequest(context.Background(), client, config, http.MethodGet, "projects/123", nil)
 	if err != nil {
@@ -2592,6 +2606,106 @@ func TestSleepRespectsContext(t *testing.T) {
 	}
 	if elapsed := time.Since(start); elapsed > time.Second {
 		t.Errorf("sleep returned after %s, expected it to be immediate", elapsed)
+	}
+}
+
+// writeServerCertPEM writes the certificate an httptest TLS server presents to
+// a temporary PEM file and returns its path.
+func writeServerCertPEM(t *testing.T, server *httptest.Server) string {
+	t.Helper()
+
+	cert := server.Certificate()
+	if cert == nil {
+		t.Fatal("server has no certificate")
+	}
+
+	path := filepath.Join(t.TempDir(), "ca.pem")
+	data := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw})
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatalf("write cert: %v", err)
+	}
+
+	return path
+}
+
+// TestCACert covers issue #146: a certificate given with --ca-cert is trusted
+// in addition to the system pool, so a self-hosted GitLab behind a private CA
+// can be reached without disabling verification.
+func TestCACert(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if _, err := w.Write([]byte(`{"id":123,"default_branch":"main"}`)); err != nil {
+			t.Errorf("write response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	certPath := writeServerCertPEM(t, server)
+
+	t.Run("trusted with --ca-cert", func(t *testing.T) {
+		config := &Config{PrivateToken: "tok", ProjectID: 123, GitLabURL: server.URL, CACert: certPath}
+
+		client, err := createHTTPClient(config)
+		if err != nil {
+			t.Fatalf("createHTTPClient() error = %v", err)
+		}
+
+		project, err := getProject(context.Background(), client, config)
+		if err != nil {
+			t.Fatalf("getProject() error = %v", err)
+		}
+		if project.ID != 123 {
+			t.Errorf("project.ID = %d, want 123", project.ID)
+		}
+	})
+
+	t.Run("rejected without it", func(t *testing.T) {
+		config := &Config{PrivateToken: "tok", ProjectID: 123, GitLabURL: server.URL}
+
+		client, err := createHTTPClient(config)
+		if err != nil {
+			t.Fatalf("createHTTPClient() error = %v", err)
+		}
+
+		if _, err := getProject(context.Background(), client, config); err == nil {
+			t.Error("expected a certificate verification error, got nil")
+		}
+	})
+
+	t.Run("missing file", func(t *testing.T) {
+		_, err := createHTTPClient(&Config{CACert: filepath.Join(t.TempDir(), "absent.pem")})
+		if err == nil {
+			t.Fatal("expected an error for a missing CA file")
+		}
+		if !strings.Contains(err.Error(), "unable to read CA certificate") {
+			t.Errorf("error = %v, want it to mention the unreadable file", err)
+		}
+	})
+
+	t.Run("file without a certificate", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "junk.pem")
+		if err := os.WriteFile(path, []byte("not a certificate"), 0o600); err != nil {
+			t.Fatalf("write file: %v", err)
+		}
+
+		_, err := createHTTPClient(&Config{CACert: path})
+		if err == nil {
+			t.Fatal("expected an error for a file with no PEM certificate")
+		}
+		if !strings.Contains(err.Error(), "no PEM certificate found") {
+			t.Errorf("error = %v, want it to mention the missing certificate", err)
+		}
+	})
+}
+
+// TestCACertWithInsecureRejected checks the two flags are refused together
+// rather than one silently winning.
+func TestCACertWithInsecureRejected(t *testing.T) {
+	err := validateConfig(&Config{CACert: "/tmp/ca.pem", Insecure: true})
+	if err == nil {
+		t.Fatal("expected an error for --ca-cert with --insecure")
+	}
+	if !strings.Contains(err.Error(), "--ca-cert cannot be used with --insecure") {
+		t.Errorf("error = %v", err)
 	}
 }
 
