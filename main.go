@@ -82,6 +82,8 @@ type Config struct {
 	Retries            int
 	RetryDelay         time.Duration
 	CACert             string
+	Draft              bool
+	Ready              bool
 }
 
 type Project struct {
@@ -209,6 +211,8 @@ func parseFlags() (*Config, error) {
 		"Labels to set on the MR (comma-separated)")
 	flag.IntVar(&config.MilestoneID, "milestone", getEnvInt("GITLAB_AUTO_MR_MILESTONE", 0),
 		"Milestone ID to set on the MR")
+	flag.BoolVar(&config.Draft, "draft", false, "Mark the MR as a draft (GitLab reads the Draft: title prefix)")
+	flag.BoolVar(&config.Ready, "ready", false, "Mark the MR as ready by removing a Draft:/WIP: title prefix")
 	flag.BoolVar(&config.UseIssueName, "use-issue-name", false, "Use issue data from branch name")
 	flag.BoolVar(&config.UseIssueName, "i", false, "Use issue data from branch name (short)")
 	flag.BoolVar(&config.AllowCollaboration, "allow-collaboration", false, "Allow collaboration")
@@ -305,11 +309,20 @@ func validateConfig(config *Config) error {
 		return fmt.Errorf("--force-pipeline has no effect without --trigger-pipeline")
 	}
 
+	if config.Draft && config.Ready {
+		return fmt.Errorf("--draft cannot be used with --ready: they ask for opposite states")
+	}
+
+	if config.AutoMerge && config.Draft {
+		return fmt.Errorf("--auto-merge cannot be used with --draft: " +
+			"GitLab does not allow auto-merge for draft merge requests")
+	}
+
 	if config.AutoMerge && config.MRExists {
 		return fmt.Errorf("--auto-merge cannot be used with --mr-exists (dry run mode)")
 	}
 
-	if config.AutoMerge && isDraftPrefix(config.CommitPrefix) {
+	if config.AutoMerge && !config.Ready && isDraftPrefix(config.CommitPrefix) {
 		return fmt.Errorf(
 			"--auto-merge cannot be used with --commit-prefix %q: "+
 				"GitLab does not allow auto-merge for draft merge requests",
@@ -370,7 +383,7 @@ func run(ctx context.Context, config *Config) error {
 		return err
 	}
 
-	title := getMRTitle(config.CommitPrefix, config.Title, config.SourceBranch)
+	title := mrTitle(config, existingMR)
 	description := getDescriptionData(config.Description)
 
 	mr, err := handleMR(ctx, client, config, existingMR, title, description)
@@ -1024,6 +1037,58 @@ func getExistingMR(ctx context.Context, client *http.Client, config *Config) (*M
 	}
 
 	return nil, nil
+}
+
+// draftMarkers are the title prefixes GitLab accepts as marking a merge request
+// a draft. There is no writable draft field on the API — the flag GitLab returns
+// is derived from the title — so this is the only way to set the state.
+var draftMarkers = []string{
+	"draft:", "[draft]", "(draft)",
+	"wip:", "[wip]", "(wip)",
+}
+
+// stripDraftMarker removes a leading draft marker from a title, along with the
+// whitespace that follows it. Titles carrying no marker are returned unchanged.
+func stripDraftMarker(title string) string {
+	trimmed := strings.TrimSpace(title)
+	lower := strings.ToLower(trimmed)
+
+	for _, marker := range draftMarkers {
+		if strings.HasPrefix(lower, marker) {
+			return strings.TrimSpace(trimmed[len(marker):])
+		}
+	}
+
+	return trimmed
+}
+
+// mrTitle builds the title for this run, applying --draft and --ready.
+//
+// With --ready on an existing MR and no --title, the MR's own title is the base:
+// marking a draft ready should not also rename a title someone wrote by hand.
+// Otherwise the title is built as usual, except that a --commit-prefix which is
+// itself a draft marker is dropped — --draft supplies the marker itself, and
+// --ready must not have one added back by the flag's "Draft" default.
+func mrTitle(config *Config, existingMR *MergeRequest) string {
+	if config.Ready && config.Title == "" && existingMR != nil && existingMR.Title != "" {
+		return stripDraftMarker(existingMR.Title)
+	}
+
+	prefix := config.CommitPrefix
+	if (config.Draft || config.Ready) && isDraftPrefix(prefix) {
+		prefix = ""
+	}
+
+	title := getMRTitle(prefix, config.Title, config.SourceBranch)
+
+	switch {
+	case config.Ready:
+		return stripDraftMarker(title)
+	case config.Draft:
+		return "Draft: " + stripDraftMarker(title)
+	}
+
+	return title
 }
 
 func getMRTitle(prefix, title, sourceBranch string) string {

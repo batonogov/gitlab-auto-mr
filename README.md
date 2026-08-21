@@ -173,6 +173,8 @@ create_only:
 | `--squash-commits`      | `-s`  | Squash commits on merge                        | `false`                |
 | `--label`               |       | Labels for the MR, comma-separated (`GITLAB_AUTO_MR_LABELS`) | -         |
 | `--milestone`           |       | Milestone ID for the MR (`GITLAB_AUTO_MR_MILESTONE`) | -                  |
+| `--draft`               |       | Mark the MR as a draft                         | `false`                |
+| `--ready`               |       | Mark the MR ready by removing a draft prefix   | `false`                |
 | `--use-issue-name`      | `-i`  | Use issue data from branch name                | `false`                |
 | `--allow-collaboration` | `-a`  | Allow commits from merge target members        | `false`                |
 | `--reviewer-id`         |       | Reviewer user ID(s) (comma-separated)          | -                      |
@@ -264,6 +266,37 @@ later nobody remembers that behind them stands a live account holding an
 - **Name the account so its purpose is obvious** (for example
   `svc-gitlab-auto-mr`). Whoever finds it during a directory cleanup will decide
   its fate based on the name alone; an account called `test1` gets deleted.
+## Draft and Ready
+
+```bash
+gitlab-auto-mr --draft               # open (or keep) the MR as a draft
+gitlab-auto-mr --ready --update-mr   # take an existing MR out of draft
+```
+
+GitLab has **no writable draft field**: the `draft` flag in API responses is
+derived from the title, and the Merge Requests API accepts no `draft` parameter.
+Draft state is set by the title prefix — `Draft:`, `[Draft]` or `(Draft)` — which
+is what these two flags manage, so the caller does not have to know the
+convention.
+
+- `--draft` puts `Draft: ` at the front of the title, without doubling one that
+  is already there. A non-draft `--commit-prefix` is kept after the marker, so
+  `--draft --commit-prefix Feature` gives `Draft: Feature: my-branch`.
+- `--ready` removes a leading `Draft:`/`WIP:` marker in any of GitLab's accepted
+  spellings, and overrides the `Draft` default of `--commit-prefix` so the marker
+  is not simply added back.
+- On an existing MR, `--ready` strips the marker from the MR's **own** title
+  rather than rebuilding the title from the branch name — marking a draft ready
+  should not also rename a title someone wrote by hand. Pass `--title` to rename
+  deliberately.
+
+`--draft` and `--ready` are refused together, and `--draft` is refused with
+`--auto-merge` for the same reason a `Draft` commit prefix already was: GitLab
+does not auto-merge drafts. `--ready` is what makes the default prefix compatible
+with `--auto-merge`.
+
+`--commit-prefix` keeps working as before and is not deprecated; these flags are
+for when you want the state rather than a particular title.
 
 ## Self-hosted GitLab with a private CA
 
