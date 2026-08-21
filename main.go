@@ -216,6 +216,10 @@ func parseFlags() (*Config, error) {
 	}
 	config.Labels = parseStringSlice(labelsStr)
 
+	if config.MilestoneID < 0 {
+		return nil, fmt.Errorf("--milestone must not be negative, got %d", config.MilestoneID)
+	}
+
 	// Clean GitLab URL if it contains full project URL
 	if strings.Contains(config.GitLabURL, "/") {
 		re := regexp.MustCompile(`^https?://[^/]+`)
@@ -439,6 +443,9 @@ func resolveMRMetadata(client *http.Client, config *Config) (int, []string) {
 // (MRCreateRequest.Labels is omitempty, and an empty list would clear labels).
 func mergeLabels(base, extra []string) []string {
 	if len(extra) == 0 {
+		if len(base) == 0 {
+			return nil
+		}
 		return base
 	}
 

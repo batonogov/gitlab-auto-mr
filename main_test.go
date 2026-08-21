@@ -1641,6 +1641,7 @@ func TestMergeLabels(t *testing.T) {
 		expected []string
 	}{
 		{"both empty", nil, nil, nil},
+		{"empty non-nil base stays nil", []string{}, nil, nil},
 		{"only base", []string{"bug"}, nil, []string{"bug"}},
 		{"only extra", nil, []string{"issue-label"}, []string{"issue-label"}},
 		{"union", []string{"bug"}, []string{"backend"}, []string{"bug", "backend"}},
@@ -2000,6 +2001,15 @@ func TestParseFlags(t *testing.T) {
 					t.Errorf("MilestoneID = %d, want 5", c.MilestoneID)
 				}
 			},
+		},
+		{
+			name: "negative-milestone",
+			args: []string{"prog", "--milestone", "-1"},
+			setup: func(t *testing.T) {
+				setRequiredParseEnv(t)
+			},
+			wantErr:   true,
+			errSubstr: "--milestone must not be negative",
 		},
 		{
 			name: "labels-and-milestone-flags-override-env",
