@@ -6,6 +6,10 @@
 *.dylib
 gitlab_auto_mr
 gitlab_auto_mr-*
+# `go build -o gitlab-auto-mr` and goreleaser's project name both produce the
+# hyphenated spelling, which the two lines above do not cover.
+gitlab-auto-mr
+gitlab-auto-mr-*
 
 # Test files
 *.test
