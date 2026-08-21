@@ -345,7 +345,7 @@ union of the two sources, and an explicit `--milestone` wins over the issue's.
 **Authentication Error**
 
 ```
-Error: unable to get project 12345: unauthorized access, check your access token is valid
+Error: unable to get project 12345: unauthorized access, check your access token is valid and has the api scope
 ```
 
 - Check your `GITLAB_PRIVATE_TOKEN` is valid and has `api` scope

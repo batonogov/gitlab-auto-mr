@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -379,7 +380,7 @@ func TestGetProject(t *testing.T) {
 	}
 
 	// Test successful request
-	project, err := getProject(client, config)
+	project, err := getProject(context.Background(), client, config)
 	if err != nil {
 		t.Errorf("Expected no error, got %v", err)
 	}
@@ -395,7 +396,7 @@ func TestGetProject(t *testing.T) {
 
 	// Test unauthorized request
 	config.PrivateToken = ""
-	_, err = getProject(client, config)
+	_, err = getProject(context.Background(), client, config)
 	if err == nil {
 		t.Error("Expected error for unauthorized request")
 	}
@@ -457,7 +458,7 @@ func TestGetExistingMR(t *testing.T) {
 	}
 
 	// Test finding existing MR
-	mr, err := getExistingMR(client, config)
+	mr, err := getExistingMR(context.Background(), client, config)
 	if err != nil {
 		t.Errorf("Expected no error, got %v", err)
 	}
@@ -470,7 +471,7 @@ func TestGetExistingMR(t *testing.T) {
 
 	// Test not finding MR
 	config.SourceBranch = "feature/nonexistent"
-	mr, err = getExistingMR(client, config)
+	mr, err = getExistingMR(context.Background(), client, config)
 	if err != nil {
 		t.Errorf("Expected no error, got %v", err)
 	}
@@ -519,7 +520,7 @@ func TestGetExistingMRServerSideFiltering(t *testing.T) {
 		TargetBranch: "main",
 	}
 
-	mr, err := getExistingMR(client, config)
+	mr, err := getExistingMR(context.Background(), client, config)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -585,7 +586,7 @@ func TestGetExistingMRSpecialChars(t *testing.T) {
 		TargetBranch: targetBranch,
 	}
 
-	mr, err := getExistingMR(client, config)
+	mr, err := getExistingMR(context.Background(), client, config)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -632,7 +633,7 @@ func TestGetIssueData(t *testing.T) {
 	}
 
 	// Test successful request
-	issue, err := getIssueData(client, config)
+	issue, err := getIssueData(context.Background(), client, config)
 	if err != nil {
 		t.Errorf("Expected no error, got %v", err)
 	}
@@ -651,14 +652,14 @@ func TestGetIssueData(t *testing.T) {
 
 	// Test invalid branch name
 	config.SourceBranch = "feature/no-issue"
-	_, err = getIssueData(client, config)
+	_, err = getIssueData(context.Background(), client, config)
 	if err == nil {
 		t.Error("Expected error for invalid branch name")
 	}
 
 	// Test invalid issue number
 	config.SourceBranch = "feature/fix-#invalid"
-	_, err = getIssueData(client, config)
+	_, err = getIssueData(context.Background(), client, config)
 	if err == nil {
 		t.Error("Expected error for invalid issue number")
 	}
@@ -713,7 +714,7 @@ func TestCreateMR(t *testing.T) {
 		Description:  "Test description",
 	}
 
-	mr, err := createMR(client, config, mrRequest)
+	mr, err := createMR(context.Background(), client, config, mrRequest)
 	if err != nil {
 		t.Errorf("Expected no error, got %v", err)
 	}
@@ -729,7 +730,7 @@ func TestCreateMR(t *testing.T) {
 
 	// Test failed creation
 	mrRequest.SourceBranch = ""
-	_, err = createMR(client, config, mrRequest)
+	_, err = createMR(context.Background(), client, config, mrRequest)
 	if err == nil {
 		t.Error("Expected error for invalid request")
 	}
@@ -776,7 +777,7 @@ func TestUpdateMR(t *testing.T) {
 		Description: "Updated description",
 	}
 
-	err := updateMR(client, config, 1, updateRequest)
+	err := updateMR(context.Background(), client, config, 1, updateRequest)
 	if err != nil {
 		t.Errorf("Expected no error, got %v", err)
 	}
@@ -819,7 +820,7 @@ func TestRunCreateOnly(t *testing.T) {
 		SquashCommits: false,
 	}
 
-	err := run(config)
+	err := run(context.Background(), config)
 	if err != nil {
 		t.Errorf("Expected no error for create-only with no existing MR, got %v", err)
 	}
@@ -868,7 +869,7 @@ func TestRunUpdateOnly(t *testing.T) {
 		SquashCommits: false,
 	}
 
-	err := run(config)
+	err := run(context.Background(), config)
 	if err != nil {
 		t.Errorf("Expected no error for update-only with existing MR, got %v", err)
 	}
@@ -912,7 +913,7 @@ func TestRunMRExists(t *testing.T) {
 		MRExists:     true,
 	}
 
-	err := run(config)
+	err := run(context.Background(), config)
 	if err != nil {
 		t.Errorf("Expected no error for MR exists check, got %v", err)
 	}
@@ -929,7 +930,7 @@ func TestRunErrorCases(t *testing.T) {
 		UserIDs:      []int{1},
 	}
 
-	err := run(config)
+	err := run(context.Background(), config)
 	if err == nil {
 		t.Error("Expected error for same source and target branches")
 	}
@@ -970,7 +971,7 @@ func TestRunErrorCases(t *testing.T) {
 		CreateOnly:   true,
 	}
 
-	err = run(config)
+	err = run(context.Background(), config)
 	if err == nil {
 		t.Error("Expected error for create-only with existing MR")
 	}
@@ -1001,7 +1002,7 @@ func TestRunErrorCases(t *testing.T) {
 		UpdateMR:     true,
 	}
 
-	err = run(config)
+	err = run(context.Background(), config)
 	if err == nil {
 		t.Error("Expected error for update-only with no existing MR")
 	}
@@ -1061,13 +1062,13 @@ func TestErrorHandling(t *testing.T) {
 	}
 
 	// Test getProject error handling
-	_, err := getProject(client, config)
+	_, err := getProject(context.Background(), client, config)
 	if err == nil {
 		t.Error("Expected error for HTTP 500 response")
 	}
 
 	// Test getExistingMR error handling
-	_, err = getExistingMR(client, config)
+	_, err = getExistingMR(context.Background(), client, config)
 	if err == nil {
 		t.Error("Expected error for HTTP 500 response")
 	}
@@ -1118,7 +1119,7 @@ func TestRunExistingMRWithoutUpdateFlag(t *testing.T) {
 		SquashCommits: false,
 	}
 
-	err := run(config)
+	err := run(context.Background(), config)
 	if err != nil {
 		t.Errorf("Expected no error when MR exists without --update-mr flag, got %v", err)
 	}
@@ -1160,7 +1161,7 @@ func TestAcceptMR(t *testing.T) {
 		SquashCommits: true,
 	}
 
-	err := acceptMR(client, config, 42)
+	err := acceptMR(context.Background(), client, config, 42)
 	if err != nil {
 		t.Errorf("Expected no error, got %v", err)
 	}
@@ -1179,7 +1180,7 @@ func TestAcceptMR405(t *testing.T) {
 		PrivateToken: "test-token",
 	}
 
-	err := acceptMR(client, config, 42)
+	err := acceptMR(context.Background(), client, config, 42)
 	if err == nil {
 		t.Error("Expected error for 405 response")
 	}
@@ -1201,7 +1202,7 @@ func TestAcceptMR401(t *testing.T) {
 		PrivateToken: "bad-token",
 	}
 
-	err := acceptMR(client, config, 42)
+	err := acceptMR(context.Background(), client, config, 42)
 	if err == nil {
 		t.Error("Expected error for 401 response")
 	}
@@ -1223,7 +1224,7 @@ func TestAcceptMR406(t *testing.T) {
 		PrivateToken: "test-token",
 	}
 
-	err := acceptMR(client, config, 42)
+	err := acceptMR(context.Background(), client, config, 42)
 	if err == nil {
 		t.Error("Expected error for 406 response")
 	}
@@ -1263,7 +1264,7 @@ func TestAutoMergeWithDraftPrefixConflict(t *testing.T) {
 		CommitPrefix: "Draft",
 	}
 
-	err := run(config)
+	err := run(context.Background(), config)
 	if err == nil {
 		t.Error("Expected error for --auto-merge with draft prefix")
 	}
@@ -1273,7 +1274,7 @@ func TestAutoMergeWithDraftPrefixConflict(t *testing.T) {
 
 	// Also test with WIP prefix
 	config.CommitPrefix = "WIP"
-	err = run(config)
+	err = run(context.Background(), config)
 	if err == nil {
 		t.Error("Expected error for --auto-merge with WIP prefix")
 	}
@@ -1285,7 +1286,7 @@ func TestAutoMergeWithMRExistsConflict(t *testing.T) {
 		MRExists:  true,
 	}
 
-	err := run(config)
+	err := run(context.Background(), config)
 	if err == nil {
 		t.Error("Expected error for --auto-merge with --mr-exists")
 	}
@@ -1329,7 +1330,7 @@ func TestRunWithAutoMerge(t *testing.T) {
 		SquashCommits: false,
 	}
 
-	err := run(config)
+	err := run(context.Background(), config)
 	if err != nil {
 		t.Errorf("Expected no error, got %v", err)
 	}
@@ -1372,7 +1373,7 @@ func TestRunWithAutoMergeUpdate(t *testing.T) {
 		CommitPrefix: "",
 	}
 
-	err := run(config)
+	err := run(context.Background(), config)
 	if err != nil {
 		t.Errorf("Expected no error, got %v", err)
 	}
@@ -1395,7 +1396,7 @@ func TestCreateMREmptyResponseBody(t *testing.T) {
 		PrivateToken: "test-token",
 	}
 
-	mr, err := createMR(client, config, &MRCreateRequest{
+	mr, err := createMR(context.Background(), client, config, &MRCreateRequest{
 		SourceBranch: "feature/test",
 		TargetBranch: "main",
 		Title:        "Test MR",
@@ -1425,7 +1426,7 @@ func TestCreateMRInvalidResponseBody(t *testing.T) {
 		PrivateToken: "test-token",
 	}
 
-	_, err := createMR(client, config, &MRCreateRequest{
+	_, err := createMR(context.Background(), client, config, &MRCreateRequest{
 		SourceBranch: "feature/test",
 		TargetBranch: "main",
 		Title:        "Test MR",
@@ -1469,7 +1470,7 @@ func TestRunWithAutoMergeExistingMRNoUpdate(t *testing.T) {
 		CommitPrefix: "",
 	}
 
-	err := run(config)
+	err := run(context.Background(), config)
 	if err != nil {
 		t.Errorf("Expected no error, got %v", err)
 	}
@@ -1522,7 +1523,7 @@ func TestRunWithIssueData(t *testing.T) {
 		SquashCommits: false,
 	}
 
-	err := run(config)
+	err := run(context.Background(), config)
 	if err != nil {
 		t.Errorf("Expected no error for run with issue data, got %v", err)
 	}
@@ -1578,7 +1579,7 @@ func TestRunWithIssueDataError(t *testing.T) {
 		os.Stderr = origStderr
 	})
 
-	runErr := run(config)
+	runErr := run(context.Background(), config)
 
 	if cerr := wPipe.Close(); cerr != nil {
 		t.Fatalf("Failed to close stderr pipe: %v", cerr)
@@ -1767,7 +1768,7 @@ func TestRunLabelAndMilestone(t *testing.T) {
 				UseIssueName: tt.useIssueName,
 			}
 
-			if err := run(config); err != nil {
+			if err := run(context.Background(), config); err != nil {
 				t.Fatalf("run() error = %v", err)
 			}
 
@@ -1906,7 +1907,7 @@ func TestPrintMRURL(t *testing.T) {
 			}
 
 			var runErr error
-			out := captureOutput(t, func() { runErr = run(config) })
+			out := captureOutput(t, func() { runErr = run(context.Background(), config) })
 			if runErr != nil {
 				t.Fatalf("run() error = %v", runErr)
 			}
@@ -2030,7 +2031,7 @@ func TestTriggerMRPipelineDeduplicates(t *testing.T) {
 				ForcePipeline:   tt.force,
 			}
 
-			err := triggerMRPipeline(server.Client(), config, &MergeRequest{IID: 42, SHA: tt.mrSHA})
+			err := triggerMRPipeline(context.Background(), server.Client(), config, &MergeRequest{IID: 42, SHA: tt.mrSHA})
 			if err != nil {
 				t.Fatalf("triggerMRPipeline() error = %v", err)
 			}
@@ -2088,7 +2089,7 @@ func TestRunTriggersPipelineOnUpdate(t *testing.T) {
 		TriggerPipeline: true,
 	}
 
-	if err := run(config); err != nil {
+	if err := run(context.Background(), config); err != nil {
 		t.Fatalf("run() error = %v", err)
 	}
 	if created != 1 {
@@ -2122,6 +2123,162 @@ func TestShortSHA(t *testing.T) {
 				t.Errorf("shortSHA(%q) = %q, want %q", tt.in, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestAPIErrorMessage pins the wording apiError produces, since it is what
+// every API function reports for an unexpected status.
+func TestAPIErrorMessage(t *testing.T) {
+	tests := []struct {
+		name string
+		err  *apiError
+		want string
+	}{
+		{"with body", &apiError{StatusCode: 400, Body: "bad request"}, "HTTP 400: bad request"},
+		{"empty body", &apiError{StatusCode: 500}, "HTTP 500"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.err.Error(); got != tt.want {
+				t.Errorf("Error() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestDoRequestUnauthorized checks that a 401 from any endpoint produces the
+// single shared errUnauthorized, so callers can match it with errors.Is.
+func TestDoRequestUnauthorized(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	config := &Config{PrivateToken: "bad", ProjectID: 123, GitLabURL: server.URL}
+
+	_, err := doRequest(context.Background(), server.Client(), config, http.MethodGet, "projects/123", nil)
+	if !errors.Is(err, errUnauthorized) {
+		t.Errorf("expected errUnauthorized, got %v", err)
+	}
+}
+
+// TestDoRequestSendsTokenAndBody checks the three things the helper is
+// responsible for on the way out: the URL, the token header, and the JSON body
+// with its Content-Type. A GET must send neither body nor Content-Type.
+func TestDoRequestSendsTokenAndBody(t *testing.T) {
+	var (
+		gotPath        string
+		gotToken       string
+		gotContentType string
+		gotBody        string
+		gotMethod      string
+	)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotToken = r.Header.Get("PRIVATE-TOKEN")
+		gotContentType = r.Header.Get("Content-Type")
+		gotMethod = r.Method
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read body: %v", err)
+		}
+		gotBody = string(body)
+		if _, err := w.Write([]byte(`{"ok":true}`)); err != nil {
+			t.Errorf("write response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	config := &Config{PrivateToken: "test-token", ProjectID: 123, GitLabURL: server.URL}
+
+	t.Run("post with body", func(t *testing.T) {
+		resp, err := doRequest(context.Background(), server.Client(), config,
+			http.MethodPost, "projects/123/merge_requests", map[string]string{"title": "x"})
+		if err != nil {
+			t.Fatalf("doRequest() error = %v", err)
+		}
+		if string(resp) != `{"ok":true}` {
+			t.Errorf("body = %q, want %q", string(resp), `{"ok":true}`)
+		}
+		if gotMethod != http.MethodPost {
+			t.Errorf("method = %q, want POST", gotMethod)
+		}
+		if gotPath != "/api/v4/projects/123/merge_requests" {
+			t.Errorf("path = %q", gotPath)
+		}
+		if gotToken != "test-token" {
+			t.Errorf("PRIVATE-TOKEN = %q, want %q", gotToken, "test-token")
+		}
+		if gotContentType != "application/json" {
+			t.Errorf("Content-Type = %q, want application/json", gotContentType)
+		}
+		if gotBody != `{"title":"x"}` {
+			t.Errorf("request body = %q, want %q", gotBody, `{"title":"x"}`)
+		}
+	})
+
+	t.Run("get without body", func(t *testing.T) {
+		if _, err := doRequest(context.Background(), server.Client(), config,
+			http.MethodGet, "projects/123", nil); err != nil {
+			t.Fatalf("doRequest() error = %v", err)
+		}
+		if gotBody != "" {
+			t.Errorf("GET sent a body: %q", gotBody)
+		}
+		if gotContentType != "" {
+			t.Errorf("GET sent Content-Type: %q", gotContentType)
+		}
+	})
+}
+
+// TestRunContextCancellation covers issue #69: a canceled context aborts the
+// request in flight rather than waiting out the client timeout.
+func TestRunContextCancellation(t *testing.T) {
+	released := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Hold the response until the client gives up on it.
+		select {
+		case <-released:
+		case <-r.Context().Done():
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer func() {
+		close(released)
+		server.Close()
+	}()
+
+	config := &Config{
+		PrivateToken: "test-token",
+		SourceBranch: "feature/test",
+		ProjectID:    123,
+		GitLabURL:    server.URL,
+		UserIDs:      []int{1},
+		TargetBranch: "main",
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+
+	start := time.Now()
+	err := run(ctx, config)
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected an error from the canceled request, got nil")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("expected context.Canceled, got %v", err)
+	}
+	// The client timeout is 30s; returning anywhere near it means cancellation
+	// was ignored.
+	if elapsed > 5*time.Second {
+		t.Errorf("run() took %v, expected it to abort as soon as the context was canceled", elapsed)
 	}
 }
 
@@ -2460,7 +2617,7 @@ func TestTriggerMRPipeline(t *testing.T) {
 		PrivateToken: "test-token",
 	}
 
-	if err := triggerMRPipeline(client, config, &MergeRequest{IID: 42}); err != nil {
+	if err := triggerMRPipeline(context.Background(), client, config, &MergeRequest{IID: 42}); err != nil {
 		t.Errorf("Expected no error, got %v", err)
 	}
 }
@@ -2479,7 +2636,7 @@ func TestTriggerMRPipelineZeroIID(t *testing.T) {
 		PrivateToken: "test-token",
 	}
 
-	if err := triggerMRPipeline(client, config, &MergeRequest{}); err != nil {
+	if err := triggerMRPipeline(context.Background(), client, config, &MergeRequest{}); err != nil {
 		t.Errorf("Expected no error, got %v", err)
 	}
 }
@@ -2512,7 +2669,7 @@ func TestTriggerMRPipelineErrors(t *testing.T) {
 				PrivateToken: "test-token",
 			}
 
-			err := triggerMRPipeline(client, config, &MergeRequest{IID: 42})
+			err := triggerMRPipeline(context.Background(), client, config, &MergeRequest{IID: 42})
 			if err == nil {
 				t.Fatal("Expected an error, got nil")
 			}
@@ -2539,7 +2696,7 @@ func TestTriggerMRPipelineUnreadableBody(t *testing.T) {
 		PrivateToken: "test-token",
 	}
 
-	if err := triggerMRPipeline(client, config, &MergeRequest{IID: 42}); err != nil {
+	if err := triggerMRPipeline(context.Background(), client, config, &MergeRequest{IID: 42}); err != nil {
 		t.Errorf("Expected no error for an unreadable body, got %v", err)
 	}
 }
@@ -2585,7 +2742,7 @@ func TestRunWithTriggerPipeline(t *testing.T) {
 		AutoMerge:       true,
 	}
 
-	if err := run(config); err != nil {
+	if err := run(context.Background(), config); err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
 
@@ -2629,7 +2786,7 @@ func TestRunWithoutTriggerPipeline(t *testing.T) {
 		UserIDs:      []int{1},
 	}
 
-	if err := run(config); err != nil {
+	if err := run(context.Background(), config); err != nil {
 		t.Errorf("Expected no error, got %v", err)
 	}
 }
