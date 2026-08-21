@@ -156,6 +156,7 @@ create_only:
   `--target-branch`/`-t`; when neither is set, the project's default branch is used.
 - `GITLAB_AUTO_MR_LABELS` - Labels for the MR (comma-separated). Overridden by `--label`.
 - `GITLAB_AUTO_MR_MILESTONE` - Milestone ID for the MR. Overridden by `--milestone`.
+- `GITLAB_AUTO_MR_CA_CERT` - Path to a PEM CA certificate to trust in addition to the system pool
 - `GITLAB_AUTO_MR_TIMEOUT` - Timeout for a single API request (default `30s`)
 - `GITLAB_AUTO_MR_RETRIES` - Retries for transient failures (default `2`)
 - `GITLAB_AUTO_MR_RETRY_DELAY` - Delay before the first retry (default `1s`)
@@ -185,6 +186,7 @@ create_only:
 | `--timeout`             |       | Timeout for a single API request               | `30s`                  |
 | `--retries`             |       | Retries for transient failures (5xx, 429, network) | `2`                |
 | `--retry-delay`         |       | Delay before the first retry, doubled each time | `1s`                  |
+| `--ca-cert`             |       | PEM CA certificate to trust (`GITLAB_AUTO_MR_CA_CERT`) | -               |
 | `--insecure`            | `-k`  | Skip SSL certificate verification              | `false`                |
 
 ### Merge Request Pipelines
@@ -240,6 +242,20 @@ Two things to expect:
   role on the project. A `CI_JOB_TOKEN` cannot be used: the Merge Requests API
   is read-only for job tokens, so it can neither create the MR nor request a
   pipeline for it.
+
+## Self-hosted GitLab with a private CA
+
+If your instance presents a certificate from an internal CA, point the tool at
+that CA rather than turning verification off:
+
+```bash
+gitlab-auto-mr --ca-cert /etc/ssl/certs/internal-ca.pem
+```
+
+The certificate is added to the system trust store rather than replacing it, so
+other hosts keep working. `--insecure`/`-k` remains available for throwaway
+cases, but the two are mutually exclusive: disabling verification would make the
+CA pointless, and this tool carries an `api`-scoped token.
 
 ## Retries
 

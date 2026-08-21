@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -80,6 +81,7 @@ type Config struct {
 	Timeout            time.Duration
 	Retries            int
 	RetryDelay         time.Duration
+	CACert             string
 }
 
 type Project struct {
@@ -187,6 +189,8 @@ func parseFlags() (*Config, error) {
 	flag.StringVar(&reviewerIDsStr, "reviewer-id", "", "Reviewer IDs (comma-separated)")
 	flag.BoolVar(&config.Insecure, "insecure", false, "Skip SSL verification")
 	flag.BoolVar(&config.Insecure, "k", false, "Skip SSL verification (short)")
+	flag.StringVar(&config.CACert, "ca-cert", getEnv("GITLAB_AUTO_MR_CA_CERT", ""),
+		"Path to a PEM CA certificate to trust in addition to the system pool")
 	// Both spellings share one variable, so they must share one default: whichever
 	// flag.StringVar runs last decides the initial value.
 	targetBranchDefault := getEnv("GITLAB_AUTO_MR_TARGET_BRANCH", "")
@@ -290,6 +294,13 @@ func isDraftPrefix(prefix string) bool {
 }
 
 func validateConfig(config *Config) error {
+	if config.CACert != "" && config.Insecure {
+		return fmt.Errorf(
+			"--ca-cert cannot be used with --insecure: " +
+				"--insecure disables verification entirely, which would make the CA pointless",
+		)
+	}
+
 	if config.ForcePipeline && !config.TriggerPipeline {
 		return fmt.Errorf("--force-pipeline has no effect without --trigger-pipeline")
 	}
@@ -327,7 +338,10 @@ func run(ctx context.Context, config *Config) error {
 		return err
 	}
 
-	client := createHTTPClient(config)
+	client, err := createHTTPClient(config)
+	if err != nil {
+		return err
+	}
 
 	project, err := getProject(ctx, client, config)
 	if err != nil {
@@ -696,7 +710,7 @@ func urlSuffix(webURL string) string {
 	return ": " + webURL
 }
 
-func createHTTPClient(config *Config) *http.Client {
+func createHTTPClient(config *Config) (*http.Client, error) {
 	timeout := config.Timeout
 	if timeout <= 0 {
 		timeout = defaultTimeout
@@ -706,16 +720,50 @@ func createHTTPClient(config *Config) *http.Client {
 		Timeout: timeout,
 	}
 
-	if config.Insecure {
+	switch {
+	case config.Insecure:
 		// #nosec G402 -- certificate verification is disabled only at the user's
 		// explicit request, via --insecure/-k.
-		tr := &http.Transport{
+		client.Transport = &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 		}
-		client.Transport = tr
+
+	case config.CACert != "":
+		pool, err := caCertPool(config.CACert)
+		if err != nil {
+			return nil, err
+		}
+		client.Transport = &http.Transport{
+			TLSClientConfig: &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12},
+		}
 	}
 
-	return client
+	return client, nil
+}
+
+// caCertPool returns the system trust store with the given PEM certificate
+// added. It is additive on purpose: a self-hosted GitLab behind an internal CA
+// is usually reached alongside other hosts with public certificates.
+func caCertPool(path string) (*x509.CertPool, error) {
+	// #nosec G304 -- the path comes from the caller's own --ca-cert flag and the
+	// tool runs with the caller's rights, so there is no privilege boundary here.
+	pem, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("unable to read CA certificate %s: %w", path, err)
+	}
+
+	pool, err := x509.SystemCertPool()
+	if err != nil {
+		// Windows returns an error here rather than a pool; starting from an
+		// empty one still lets the given CA work.
+		pool = x509.NewCertPool()
+	}
+
+	if !pool.AppendCertsFromPEM(pem) {
+		return nil, fmt.Errorf("no PEM certificate found in %s", path)
+	}
+
+	return pool, nil
 }
 
 // apiError is returned by doRequest when GitLab answered with a status the
