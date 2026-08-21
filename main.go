@@ -59,6 +59,7 @@ type Config struct {
 	TriggerPipeline    bool
 	Labels             []string
 	MilestoneID        int
+	ForcePipeline      bool
 }
 
 type Project struct {
@@ -75,12 +76,14 @@ type MergeRequest struct {
 	TargetBranch string `json:"target_branch"`
 	State        string `json:"state"`
 	WebURL       string `json:"web_url"`
+	SHA          string `json:"sha"`
 }
 
 type Pipeline struct {
 	ID     int    `json:"id"`
 	Status string `json:"status"`
 	WebURL string `json:"web_url"`
+	SHA    string `json:"sha"`
 }
 
 type Issue struct {
@@ -181,8 +184,10 @@ func parseFlags() (*Config, error) {
 	flag.BoolVar(&config.UpdateMR, "update-mr", false, "Update existing MR instead of creating new one")
 	flag.BoolVar(&config.CreateOnly, "create-only", false, "Only create new MR, fail if MR already exists")
 	flag.BoolVar(&config.AutoMerge, "auto-merge", false, "Enable merge when pipeline succeeds (auto-merge)")
+	flag.BoolVar(&config.ForcePipeline, "force-pipeline", false,
+		"With --trigger-pipeline, create a pipeline even if one exists for the same commit")
 	flag.BoolVar(&config.TriggerPipeline, "trigger-pipeline", false,
-		"Create a merge request pipeline after the MR is created")
+		"Create a merge request pipeline for the MR, whether it was created or updated")
 	flag.BoolVar(&showVersion, "version", false, "Show version information and exit")
 	flag.BoolVar(&showVersion, "v", false, "Show version information and exit (short)")
 
@@ -239,6 +244,10 @@ func isDraftPrefix(prefix string) bool {
 }
 
 func validateConfig(config *Config) error {
+	if config.ForcePipeline && !config.TriggerPipeline {
+		return fmt.Errorf("--force-pipeline has no effect without --trigger-pipeline")
+	}
+
 	if config.AutoMerge && config.MRExists {
 		return fmt.Errorf("--auto-merge cannot be used with --mr-exists (dry run mode)")
 	}
@@ -297,6 +306,38 @@ func run(config *Config) error {
 		return nil
 	}
 
+	if err := checkMRMode(config, existingMR); err != nil {
+		return err
+	}
+
+	title := getMRTitle(config.CommitPrefix, config.Title, config.SourceBranch)
+	description := getDescriptionData(config.Description)
+
+	mr, err := handleMR(client, config, existingMR, title, description)
+	if err != nil {
+		return err
+	}
+	if mr == nil {
+		// Defensive: every handleMR branch returns an MR on success.
+		mr = &MergeRequest{}
+	}
+
+	if config.TriggerPipeline {
+		if err := triggerMRPipeline(client, config, mr); err != nil {
+			return fmt.Errorf("failed to trigger merge request pipeline: %v", err)
+		}
+	}
+
+	if config.AutoMerge {
+		return enableAutoMerge(client, config, mr.IID)
+	}
+
+	return nil
+}
+
+// checkMRMode rejects the two combinations where the mode the user asked for
+// contradicts what is actually on the server.
+func checkMRMode(config *Config, existingMR *MergeRequest) error {
 	if config.CreateOnly && existingMR != nil {
 		return fmt.Errorf(
 			"merge request already exists for this branch %s to %s, "+
@@ -313,31 +354,13 @@ func run(config *Config) error {
 		)
 	}
 
-	title := getMRTitle(config.CommitPrefix, config.Title, config.SourceBranch)
-	description := getDescriptionData(config.Description)
-
-	mrIID, err := handleMR(client, config, existingMR, title, description)
-	if err != nil {
-		return err
-	}
-
-	if config.TriggerPipeline {
-		if err := triggerMRPipeline(client, config, mrIID); err != nil {
-			return fmt.Errorf("failed to trigger merge request pipeline: %v", err)
-		}
-	}
-
-	if config.AutoMerge {
-		return enableAutoMerge(client, config, mrIID)
-	}
-
 	return nil
 }
 
 func handleMR(
 	client *http.Client, config *Config,
 	existingMR *MergeRequest, title, description string,
-) (int, error) {
+) (*MergeRequest, error) {
 	switch {
 	case existingMR != nil && !config.UpdateMR:
 		if config.AutoMerge {
@@ -353,7 +376,7 @@ func handleMR(
 			)
 		}
 		printMRURL(existingMR)
-		return existingMR.IID, nil
+		return existingMR, nil
 
 	case existingMR != nil:
 		return handleUpdateMR(client, config, existingMR, title, description)
@@ -366,7 +389,7 @@ func handleMR(
 func handleUpdateMR(
 	client *http.Client, config *Config,
 	existingMR *MergeRequest, title, description string,
-) (int, error) {
+) (*MergeRequest, error) {
 	updateRequest := &MRUpdateRequest{
 		Title:              title,
 		Description:        description,
@@ -380,18 +403,18 @@ func handleUpdateMR(
 	updateRequest.MilestoneID, updateRequest.Labels = resolveMRMetadata(client, config)
 
 	if err := updateMR(client, config, existingMR.IID, updateRequest); err != nil {
-		return 0, fmt.Errorf("failed to update MR: %v", err)
+		return nil, fmt.Errorf("failed to update MR: %v", err)
 	}
 
 	fmt.Printf("Updated existing MR %s (IID: %d)\n", title, existingMR.IID)
 	printMRURL(existingMR)
-	return existingMR.IID, nil
+	return existingMR, nil
 }
 
 func handleCreateMR(
 	client *http.Client, config *Config,
 	title, description string,
-) (int, error) {
+) (*MergeRequest, error) {
 	mrRequest := &MRCreateRequest{
 		SourceBranch:       config.SourceBranch,
 		TargetBranch:       config.TargetBranch,
@@ -408,12 +431,12 @@ func handleCreateMR(
 
 	createdMR, err := createMR(client, config, mrRequest)
 	if err != nil {
-		return 0, fmt.Errorf("failed to create MR: %v", err)
+		return nil, fmt.Errorf("failed to create MR: %v", err)
 	}
 
 	fmt.Printf("Created a new MR %s, assigned to you.\n", title)
 	printMRURL(createdMR)
-	return createdMR.IID, nil
+	return createdMR, nil
 }
 
 // resolveMRMetadata determines the milestone and labels for the MR, combining
@@ -505,15 +528,36 @@ func enableAutoMerge(client *http.Client, config *Config, mrIID int) error {
 // for a commit that already has a branch pipeline. A CI configuration whose
 // jobs run only on `merge_request_event` would therefore never see the MR, and
 // the missing checks are easy to mistake for passing ones.
-func triggerMRPipeline(client *http.Client, config *Config, mrIID int) error {
-	if mrIID == 0 {
+//
+// The call runs for updated MRs as well as new ones, because a moved branch is
+// exactly when the checks are worth re-running. To keep that from producing a
+// pipeline per job run, an existing pipeline for the same commit is left alone
+// unless --force-pipeline says otherwise.
+func triggerMRPipeline(client *http.Client, config *Config, mr *MergeRequest) error {
+	if mr == nil || mr.IID == 0 {
 		fmt.Println("Warning: could not determine MR IID, skipping pipeline trigger")
 		return nil
 	}
 
+	if !config.ForcePipeline {
+		existing, err := findPipelineForSHA(client, config, mr)
+		if err != nil {
+			// Not being able to list pipelines is no reason to skip creating one;
+			// the worst case is the duplicate this check exists to avoid.
+			fmt.Fprintf(os.Stderr, "Warning: could not check for existing pipelines: %v\n", err)
+		} else if existing != nil {
+			fmt.Printf(
+				"Merge request pipeline already exists for commit %s (ID: %d, status: %s)%s\n",
+				shortSHA(mr.SHA), existing.ID, existing.Status, urlSuffix(existing.WebURL),
+			)
+			fmt.Println("Skipping pipeline creation; pass --force-pipeline to create another.")
+			return nil
+		}
+	}
+
 	apiURL := fmt.Sprintf(
 		"%s/api/v4/projects/%d/merge_requests/%d/pipelines",
-		config.GitLabURL, config.ProjectID, mrIID,
+		config.GitLabURL, config.ProjectID, mr.IID,
 	)
 
 	req, err := http.NewRequest("POST", apiURL, http.NoBody)
@@ -539,14 +583,10 @@ func triggerMRPipeline(client *http.Client, config *Config, mrIID int) error {
 			fmt.Printf("Warning: merge request pipeline created but response could not be read: %v\n", err)
 			return nil
 		}
-		if pipeline.WebURL != "" {
-			fmt.Printf(
-				"Merge request pipeline created (ID: %d, status: %s): %s\n",
-				pipeline.ID, pipeline.Status, pipeline.WebURL,
-			)
-			return nil
-		}
-		fmt.Printf("Merge request pipeline created (ID: %d, status: %s)\n", pipeline.ID, pipeline.Status)
+		fmt.Printf(
+			"Merge request pipeline created (ID: %d, status: %s)%s\n",
+			pipeline.ID, pipeline.Status, urlSuffix(pipeline.WebURL),
+		)
 		return nil
 	case 401:
 		return fmt.Errorf("unauthorized access, check your access token permissions")
@@ -566,6 +606,71 @@ func triggerMRPipeline(client *http.Client, config *Config, mrIID int) error {
 		respBody, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBody))
 	}
+}
+
+// findPipelineForSHA returns the MR's existing pipeline for its head commit, or
+// nil when there is none.
+//
+// With an unknown head SHA there is nothing to compare against, so it reports
+// no match and the caller creates a pipeline: a duplicate is a better outcome
+// than silently skipping the checks.
+func findPipelineForSHA(client *http.Client, config *Config, mr *MergeRequest) (*Pipeline, error) {
+	if mr.SHA == "" {
+		return nil, nil
+	}
+
+	apiURL := fmt.Sprintf(
+		"%s/api/v4/projects/%d/merge_requests/%d/pipelines",
+		config.GitLabURL, config.ProjectID, mr.IID,
+	)
+
+	req, err := http.NewRequest("GET", apiURL, http.NoBody)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("PRIVATE-TOKEN", config.PrivateToken)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var pipelines []Pipeline
+	if err := json.NewDecoder(resp.Body).Decode(&pipelines); err != nil {
+		return nil, err
+	}
+
+	for i := range pipelines {
+		if pipelines[i].SHA == mr.SHA {
+			return &pipelines[i], nil
+		}
+	}
+
+	return nil, nil
+}
+
+// shortSHA abbreviates a commit hash for log output, the way git does.
+func shortSHA(sha string) string {
+	const shortLen = 8
+	if len(sha) <= shortLen {
+		return sha
+	}
+	return sha[:shortLen]
+}
+
+// urlSuffix renders ": <url>" when there is a URL, and nothing when there is not.
+func urlSuffix(webURL string) string {
+	if webURL == "" {
+		return ""
+	}
+	return ": " + webURL
 }
 
 func createHTTPClient(insecure bool) *http.Client {

@@ -1922,6 +1922,209 @@ func TestPrintMRURL(t *testing.T) {
 	}
 }
 
+// pipelineServer mocks the two pipeline endpoints and records how often the MR
+// pipeline was created. existingSHA, when non-empty, is the SHA of a pipeline
+// GitLab already has for the MR.
+func pipelineServer(t *testing.T, existingSHA string, listStatus int) (*httptest.Server, *int) {
+	t.Helper()
+
+	created := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v4/projects/123/merge_requests/42/pipelines" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+
+		switch r.Method {
+		case http.MethodGet:
+			if listStatus != 0 && listStatus != http.StatusOK {
+				w.WriteHeader(listStatus)
+				return
+			}
+			body := "[]"
+			if existingSHA != "" {
+				body = `[{"id":7,"status":"running","sha":"` + existingSHA +
+					`","web_url":"https://gitlab.example.com/p/-/pipelines/7"}]`
+			}
+			if _, err := w.Write([]byte(body)); err != nil {
+				t.Errorf("write pipeline list: %v", err)
+			}
+		case http.MethodPost:
+			created++
+			w.WriteHeader(http.StatusCreated)
+			if _, err := w.Write([]byte(`{"id":9,"status":"created"}`)); err != nil {
+				t.Errorf("write created pipeline: %v", err)
+			}
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	}))
+
+	return server, &created
+}
+
+// TestTriggerMRPipelineDeduplicates covers issue #151: a pipeline is not created
+// again for a commit that already has one, unless --force-pipeline is given.
+func TestTriggerMRPipelineDeduplicates(t *testing.T) {
+	const headSHA = "abc123def456"
+
+	tests := []struct {
+		name        string
+		existingSHA string
+		mrSHA       string
+		force       bool
+		listStatus  int
+		wantCreated int
+	}{
+		{
+			name:        "skips when a pipeline exists for the head commit",
+			existingSHA: headSHA,
+			mrSHA:       headSHA,
+			wantCreated: 0,
+		},
+		{
+			name:        "creates when the existing pipeline is for an older commit",
+			existingSHA: "0000000000",
+			mrSHA:       headSHA,
+			wantCreated: 1,
+		},
+		{
+			name:        "creates when the MR has no pipelines",
+			mrSHA:       headSHA,
+			wantCreated: 1,
+		},
+		{
+			name:        "--force-pipeline creates anyway",
+			existingSHA: headSHA,
+			mrSHA:       headSHA,
+			force:       true,
+			wantCreated: 1,
+		},
+		{
+			name:        "creates when the head SHA is unknown",
+			existingSHA: headSHA,
+			mrSHA:       "",
+			wantCreated: 1,
+		},
+		{
+			name:        "creates when the pipeline list cannot be read",
+			existingSHA: headSHA,
+			mrSHA:       headSHA,
+			listStatus:  http.StatusInternalServerError,
+			wantCreated: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server, created := pipelineServer(t, tt.existingSHA, tt.listStatus)
+			defer server.Close()
+
+			config := &Config{
+				PrivateToken:    "test-token",
+				ProjectID:       123,
+				GitLabURL:       server.URL,
+				TriggerPipeline: true,
+				ForcePipeline:   tt.force,
+			}
+
+			err := triggerMRPipeline(server.Client(), config, &MergeRequest{IID: 42, SHA: tt.mrSHA})
+			if err != nil {
+				t.Fatalf("triggerMRPipeline() error = %v", err)
+			}
+			if *created != tt.wantCreated {
+				t.Errorf("pipelines created = %d, want %d", *created, tt.wantCreated)
+			}
+		})
+	}
+}
+
+// TestRunTriggersPipelineOnUpdate covers issue #150: updating an existing MR
+// triggers a pipeline too, since the branch has moved. The MR carries a SHA
+// that has no pipeline yet, which is the case where a new one is wanted.
+func TestRunTriggersPipelineOnUpdate(t *testing.T) {
+	created := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/api/v4/projects/123" && r.Method == http.MethodGet:
+			if err := json.NewEncoder(w).Encode(Project{ID: 123, DefaultBranch: "main"}); err != nil {
+				t.Errorf("encode project: %v", err)
+			}
+		case r.URL.Path == "/api/v4/projects/123/merge_requests" && r.Method == http.MethodGet:
+			if _, err := w.Write([]byte(`[{"id":1,"iid":42,"title":"Old","sha":"newsha"}]`)); err != nil {
+				t.Errorf("write MR list: %v", err)
+			}
+		case r.URL.Path == "/api/v4/projects/123/merge_requests/42" && r.Method == http.MethodPut:
+			if _, err := w.Write([]byte(`{"id":1,"iid":42}`)); err != nil {
+				t.Errorf("write update response: %v", err)
+			}
+		case r.URL.Path == "/api/v4/projects/123/merge_requests/42/pipelines" && r.Method == http.MethodGet:
+			if _, err := w.Write([]byte(`[{"id":7,"status":"success","sha":"oldsha"}]`)); err != nil {
+				t.Errorf("write pipeline list: %v", err)
+			}
+		case r.URL.Path == "/api/v4/projects/123/merge_requests/42/pipelines" && r.Method == http.MethodPost:
+			created++
+			w.WriteHeader(http.StatusCreated)
+			if _, err := w.Write([]byte(`{"id":9,"status":"created"}`)); err != nil {
+				t.Errorf("write created pipeline: %v", err)
+			}
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	config := &Config{
+		PrivateToken:    "test-token",
+		SourceBranch:    "feature/test",
+		ProjectID:       123,
+		GitLabURL:       server.URL,
+		UserIDs:         []int{1},
+		TargetBranch:    "main",
+		UpdateMR:        true,
+		TriggerPipeline: true,
+	}
+
+	if err := run(config); err != nil {
+		t.Fatalf("run() error = %v", err)
+	}
+	if created != 1 {
+		t.Errorf("pipelines created on update = %d, want 1", created)
+	}
+}
+
+// TestForcePipelineRequiresTriggerPipeline checks the flag is refused on its
+// own rather than silently doing nothing.
+func TestForcePipelineRequiresTriggerPipeline(t *testing.T) {
+	err := validateConfig(&Config{ForcePipeline: true})
+	if err == nil {
+		t.Fatal("expected an error for --force-pipeline without --trigger-pipeline")
+	}
+	if !strings.Contains(err.Error(), "--force-pipeline has no effect without --trigger-pipeline") {
+		t.Errorf("error = %v", err)
+	}
+}
+
+func TestShortSHA(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{"", ""},
+		{"abc", "abc"},
+		{"abcdef12", "abcdef12"},
+		{"abcdef1234567890", "abcdef12"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.in, func(t *testing.T) {
+			if got := shortSHA(tt.in); got != tt.want {
+				t.Errorf("shortSHA(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
 // resetFlagSet replaces the package-level flag.CommandLine with a fresh FlagSet
 // using ContinueOnError. parseFlags re-registers every flag on flag.CommandLine,
 // so without a reset the second subtest would panic with "flag redefined".
@@ -2257,7 +2460,7 @@ func TestTriggerMRPipeline(t *testing.T) {
 		PrivateToken: "test-token",
 	}
 
-	if err := triggerMRPipeline(client, config, 42); err != nil {
+	if err := triggerMRPipeline(client, config, &MergeRequest{IID: 42}); err != nil {
 		t.Errorf("Expected no error, got %v", err)
 	}
 }
@@ -2276,7 +2479,7 @@ func TestTriggerMRPipelineZeroIID(t *testing.T) {
 		PrivateToken: "test-token",
 	}
 
-	if err := triggerMRPipeline(client, config, 0); err != nil {
+	if err := triggerMRPipeline(client, config, &MergeRequest{}); err != nil {
 		t.Errorf("Expected no error, got %v", err)
 	}
 }
@@ -2309,7 +2512,7 @@ func TestTriggerMRPipelineErrors(t *testing.T) {
 				PrivateToken: "test-token",
 			}
 
-			err := triggerMRPipeline(client, config, 42)
+			err := triggerMRPipeline(client, config, &MergeRequest{IID: 42})
 			if err == nil {
 				t.Fatal("Expected an error, got nil")
 			}
@@ -2336,7 +2539,7 @@ func TestTriggerMRPipelineUnreadableBody(t *testing.T) {
 		PrivateToken: "test-token",
 	}
 
-	if err := triggerMRPipeline(client, config, 42); err != nil {
+	if err := triggerMRPipeline(client, config, &MergeRequest{IID: 42}); err != nil {
 		t.Errorf("Expected no error for an unreadable body, got %v", err)
 	}
 }
