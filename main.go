@@ -997,6 +997,8 @@ func getDescriptionData(descriptionPath string) string {
 		return ""
 	}
 
+	// #nosec G304 -- the path comes from the caller's own --description flag and the
+	// tool runs with the caller's rights, so there is no privilege boundary to cross.
 	data, err := os.ReadFile(descriptionPath)
 	if err != nil {
 		fmt.Printf("Unable to read description file at %s: %v. No description will be set.\n",
