@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -1780,6 +1781,142 @@ func TestRunLabelAndMilestone(t *testing.T) {
 				if captured.Labels[i] != tt.expectedLabels[i] {
 					t.Errorf("Labels[%d] = %q, want %q", i, captured.Labels[i], tt.expectedLabels[i])
 				}
+			}
+		})
+	}
+}
+
+// captureOutput runs fn with os.Stdout redirected to a pipe and returns what it
+// wrote. The pipe is drained on a goroutine so a write larger than the pipe
+// buffer cannot deadlock.
+func captureOutput(t *testing.T, fn func()) string {
+	t.Helper()
+
+	orig := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	os.Stdout = w
+
+	done := make(chan string, 1)
+	go func() {
+		var buf bytes.Buffer
+		if _, cerr := io.Copy(&buf, r); cerr != nil {
+			t.Errorf("drain pipe: %v", cerr)
+		}
+		done <- buf.String()
+	}()
+
+	fn()
+
+	os.Stdout = orig
+	if cerr := w.Close(); cerr != nil {
+		t.Errorf("close pipe writer: %v", cerr)
+	}
+	out := <-done
+	if cerr := r.Close(); cerr != nil {
+		t.Errorf("close pipe reader: %v", cerr)
+	}
+	return out
+}
+
+// TestPrintMRURL covers issue #75: the MR's browser URL is printed after every
+// operation that identifies an MR, and nothing is printed when GitLab did not
+// return one.
+func TestPrintMRURL(t *testing.T) {
+	const webURL = "https://gitlab.example.com/group/proj/-/merge_requests/42"
+
+	tests := []struct {
+		name      string
+		existing  string // JSON body for the MR list endpoint
+		createdMR string // JSON body for the create response
+		config    func(c *Config)
+		wantURL   bool
+	}{
+		{
+			name:      "created",
+			existing:  "[]",
+			createdMR: `{"id":1,"iid":42,"web_url":"` + webURL + `"}`,
+			wantURL:   true,
+		},
+		{
+			name:      "created without web_url",
+			existing:  "[]",
+			createdMR: `{"id":1,"iid":42}`,
+			wantURL:   false,
+		},
+		{
+			name:     "updated",
+			existing: `[{"id":1,"iid":42,"title":"Old","web_url":"` + webURL + `"}]`,
+			config:   func(c *Config) { c.UpdateMR = true },
+			wantURL:  true,
+		},
+		{
+			name:     "exists without update flag",
+			existing: `[{"id":1,"iid":42,"title":"Old","web_url":"` + webURL + `"}]`,
+			wantURL:  true,
+		},
+		{
+			name:     "dry run",
+			existing: `[{"id":1,"iid":42,"title":"Old","web_url":"` + webURL + `"}]`,
+			config:   func(c *Config) { c.MRExists = true },
+			wantURL:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch {
+				case r.URL.Path == "/api/v4/projects/123" && r.Method == "GET":
+					if err := json.NewEncoder(w).Encode(Project{ID: 123, DefaultBranch: "main"}); err != nil {
+						t.Errorf("encode project: %v", err)
+					}
+				case r.URL.Path == "/api/v4/projects/123/merge_requests" && r.Method == "GET":
+					if _, err := w.Write([]byte(tt.existing)); err != nil {
+						t.Errorf("write MR list: %v", err)
+					}
+				case r.URL.Path == "/api/v4/projects/123/merge_requests" && r.Method == "POST":
+					w.WriteHeader(http.StatusCreated)
+					if _, err := w.Write([]byte(tt.createdMR)); err != nil {
+						t.Errorf("write created MR: %v", err)
+					}
+				case r.URL.Path == "/api/v4/projects/123/merge_requests/42" && r.Method == "PUT":
+					if _, err := w.Write([]byte(`{}`)); err != nil {
+						t.Errorf("write update response: %v", err)
+					}
+				default:
+					w.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			defer server.Close()
+
+			config := &Config{
+				PrivateToken: "test-token",
+				SourceBranch: "feature/test",
+				ProjectID:    123,
+				GitLabURL:    server.URL,
+				UserIDs:      []int{1},
+				TargetBranch: "main",
+			}
+			if tt.config != nil {
+				tt.config(config)
+			}
+
+			var runErr error
+			out := captureOutput(t, func() { runErr = run(config) })
+			if runErr != nil {
+				t.Fatalf("run() error = %v", runErr)
+			}
+
+			gotURL := strings.Contains(out, "MR URL: "+webURL)
+			if gotURL != tt.wantURL {
+				t.Errorf("URL printed = %v, want %v; output was:\n%s", gotURL, tt.wantURL, out)
+			}
+			if !tt.wantURL && strings.Contains(out, "MR URL:") {
+				t.Errorf("expected no MR URL line, output was:\n%s", out)
 			}
 		})
 	}

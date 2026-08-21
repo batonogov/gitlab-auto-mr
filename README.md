@@ -96,6 +96,14 @@ create_mr:
     - if: $CI_COMMIT_BRANCH != "main" && $CI_PIPELINE_SOURCE != "merge_request_event"
 ```
 
+Every run that identifies an MR prints its browser URL, so it can be clicked
+straight out of the job log:
+
+```
+Created a new MR Draft: feature/new-thing, assigned to you.
+MR URL: https://gitlab.example.com/group/project/-/merge_requests/42
+```
+
 #### Update Existing MR
 
 ```yaml
@@ -329,6 +337,7 @@ Error: unable to get project 12345: unauthorized access, check your access token
 
 ```
 Merge request already exists: Feature XYZ (IID: 42). Use --update-mr flag to update it.
+MR URL: https://gitlab.example.com/group/project/-/merge_requests/42
 ```
 
 - This is the default behavior when MR already exists
