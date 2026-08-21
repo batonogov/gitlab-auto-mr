@@ -138,11 +138,16 @@ create_only:
 - `CI_PROJECT_URL` - GitLab URL
 - `CI_COMMIT_REF_NAME` - Source branch name
 
+### Optional Environment Variables
+
+- `GITLAB_AUTO_MR_TARGET_BRANCH` - Target branch for the MR. Overridden by
+  `--target-branch`/`-t`; when neither is set, the project's default branch is used.
+
 ### CLI Options
 
 | Option                  | Short | Description                                    | Default                |
 | ----------------------- | ----- | ---------------------------------------------- | ---------------------- |
-| `--target-branch`       | `-t`  | Target branch for MR                           | Project default branch |
+| `--target-branch`       | `-t`  | Target branch for MR (`GITLAB_AUTO_MR_TARGET_BRANCH`) | Project default branch |
 | `--commit-prefix`       | `-c`  | MR title prefix                                | `Draft`                |
 | `--title`               |       | Custom MR title                                | Source branch name     |
 | `--description`         | `-d`  | Path to description file                       | -                      |

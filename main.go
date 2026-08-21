@@ -152,8 +152,11 @@ func parseFlags() (*Config, error) {
 	flag.StringVar(&reviewerIDsStr, "reviewer-id", "", "Reviewer IDs (comma-separated)")
 	flag.BoolVar(&config.Insecure, "insecure", false, "Skip SSL verification")
 	flag.BoolVar(&config.Insecure, "k", false, "Skip SSL verification (short)")
-	flag.StringVar(&config.TargetBranch, "target-branch", "", "Target branch to merge onto")
-	flag.StringVar(&config.TargetBranch, "t", "", "Target branch to merge onto (short)")
+	// Both spellings share one variable, so they must share one default: whichever
+	// flag.StringVar runs last decides the initial value.
+	targetBranchDefault := getEnv("GITLAB_AUTO_MR_TARGET_BRANCH", "")
+	flag.StringVar(&config.TargetBranch, "target-branch", targetBranchDefault, "Target branch to merge onto")
+	flag.StringVar(&config.TargetBranch, "t", targetBranchDefault, "Target branch to merge onto (short)")
 	flag.StringVar(&config.CommitPrefix, "commit-prefix", "Draft", "Prefix for MR title")
 	flag.StringVar(&config.CommitPrefix, "c", "Draft", "Prefix for MR title (short)")
 	flag.BoolVar(&config.RemoveBranch, "remove-branch", false, "Remove source branch after merge")
