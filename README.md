@@ -155,7 +155,38 @@ create_only:
 | `--update-mr`           |       | Update existing MR (required to update, fail if none exists) | `false`                |
 | `--create-only`         |       | Force create new MR (fail if already exists)   | `false`                |
 | `--auto-merge`          |       | Enable merge when pipeline succeeds (auto-merge) | `false`              |
+| `--trigger-pipeline`    |       | Create a merge request pipeline after the MR is created | `false`         |
 | `--insecure`            | `-k`  | Skip SSL certificate verification              | `false`                |
+
+### Merge Request Pipelines
+
+GitLab does not start a merge request pipeline on its own when the MR is created
+through the API for a commit that already has a branch pipeline. If your CI
+configuration runs jobs only on `merge_request_event`, those jobs never run for
+the newly created MR — and the branch pipeline that did run may look green while
+having executed none of them.
+
+`--trigger-pipeline` asks GitLab for that pipeline explicitly, right after the MR
+is created:
+
+```yaml
+open_merge_request:
+  image: $GITLAB_AUTO_MR_IMAGE
+  script:
+    - gitlab_auto_mr --target-branch main --trigger-pipeline
+```
+
+Two things to expect:
+
+- On the push that creates the MR you will have **two pipelines for the same
+  commit** — the branch pipeline that ran this job, and the merge request
+  pipeline created here. A `workflow` rule such as
+  `$CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS == null` keeps later pushes to
+  the same branch down to one.
+- The token needs the `api` scope, and its owner needs at least the Developer
+  role on the project. A `CI_JOB_TOKEN` cannot be used: the Merge Requests API
+  is read-only for job tokens, so it can neither create the MR nor request a
+  pipeline for it.
 
 ## Building
 
