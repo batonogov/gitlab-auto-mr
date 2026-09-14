@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.10.1](https://github.com/batonogov/gitlab-auto-mr/compare/v1.10.0...v1.10.1) (2026-09-14)
+
+
+### Maintenance
+
+* **deps:** bump github/codeql-action/upload-sarif ([#178](https://github.com/batonogov/gitlab-auto-mr/issues/178)) ([d18d09c](https://github.com/batonogov/gitlab-auto-mr/commit/d18d09c1fa55a67eef287b73f8a0cba996ca7b83))
+* **deps:** bump golang in the docker-dependencies group ([#173](https://github.com/batonogov/gitlab-auto-mr/issues/173)) ([8b5e5f0](https://github.com/batonogov/gitlab-auto-mr/commit/8b5e5f0ea50fa142d689355392f0589e308f4057))
+* **deps:** bump golang in the docker-dependencies group ([#177](https://github.com/batonogov/gitlab-auto-mr/issues/177)) ([b1290fe](https://github.com/batonogov/gitlab-auto-mr/commit/b1290fef032914eb0a02b20c1ab5361d28447d97))
+* **deps:** bump the github-actions group across 1 directory with 3 updates ([#175](https://github.com/batonogov/gitlab-auto-mr/issues/175)) ([1929302](https://github.com/batonogov/gitlab-auto-mr/commit/19293020806945bda63c9c632ea68fe30f4a6313))
+
 ## [1.10.0](https://github.com/batonogov/gitlab-auto-mr/compare/v1.9.0...v1.10.0) (2026-08-21)
 
 
