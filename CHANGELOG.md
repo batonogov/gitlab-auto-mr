@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.10.2](https://github.com/batonogov/gitlab-auto-mr/compare/v1.10.1...v1.10.2) (2026-09-21)
+
+
+### Maintenance
+
+* **deps:** bump the github-actions group with 4 updates ([#179](https://github.com/batonogov/gitlab-auto-mr/issues/179)) ([fd9463b](https://github.com/batonogov/gitlab-auto-mr/commit/fd9463b590aec14fccd0298b855c9a9dae115278))
+
 ## [1.10.1](https://github.com/batonogov/gitlab-auto-mr/compare/v1.10.0...v1.10.1) (2026-09-14)
 
 
