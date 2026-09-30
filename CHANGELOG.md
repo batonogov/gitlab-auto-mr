@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.10.2](https://github.com/batonogov/gitlab-auto-mr/compare/v1.10.1...v1.10.2) (2026-09-30)
+
+
+### Maintenance
+
+* **deps:** bump alpine in the docker-dependencies group ([#181](https://github.com/batonogov/gitlab-auto-mr/issues/181)) ([0735efa](https://github.com/batonogov/gitlab-auto-mr/commit/0735efa2e00b2a854baad799d995d755e8e3a654))
+* **deps:** bump github/codeql-action/upload-sarif ([#182](https://github.com/batonogov/gitlab-auto-mr/issues/182)) ([beecc56](https://github.com/batonogov/gitlab-auto-mr/commit/beecc56462c26e4c74390b3f6004f733c9403450))
+* **deps:** bump the github-actions group with 4 updates ([#179](https://github.com/batonogov/gitlab-auto-mr/issues/179)) ([fd9463b](https://github.com/batonogov/gitlab-auto-mr/commit/fd9463b590aec14fccd0298b855c9a9dae115278))
+
 ## [1.10.1](https://github.com/batonogov/gitlab-auto-mr/compare/v1.10.0...v1.10.1) (2026-09-14)
 
 
