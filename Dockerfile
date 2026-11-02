@@ -1,4 +1,4 @@
-FROM golang:1.27.1-alpine AS builder
+FROM golang:1.27.3-alpine AS builder
 
 WORKDIR /app
 
@@ -20,7 +20,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo \
     -o gitlab_auto_mr .
 
 # Final stage
-FROM alpine:3.24.2
+FROM alpine:3.24.3
 
 RUN apk --no-cache --no-scripts add ca-certificates
 
