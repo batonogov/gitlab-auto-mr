@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.10.3](https://github.com/batonogov/gitlab-auto-mr/compare/v1.10.2...v1.10.3) (2026-11-17)
+
+
+### Maintenance
+
+* **deps:** bump the docker-dependencies group with 2 updates ([#189](https://github.com/batonogov/gitlab-auto-mr/issues/189)) ([3175f82](https://github.com/batonogov/gitlab-auto-mr/commit/3175f827c5ad9c5125558cb82a515734cae553f2))
+* **deps:** bump the github-actions group with 3 updates ([#188](https://github.com/batonogov/gitlab-auto-mr/issues/188)) ([db6ecf9](https://github.com/batonogov/gitlab-auto-mr/commit/db6ecf945f38215501c1cad79142b3da8245906d))
+
 ## [1.10.2](https://github.com/batonogov/gitlab-auto-mr/compare/v1.10.1...v1.10.2) (2026-11-02)
 
 
